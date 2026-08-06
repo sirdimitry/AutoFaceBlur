@@ -25,7 +25,7 @@ def get_resource_path(relative_path):
 class MainWindow(ctk.CTk):
     def __init__(self):
         super().__init__()
-        self.title("FaceBlur Studio — v1.0.1")
+        self.title("FaceBlur Studio — v1.0.3")
         
         self.geometry("1100x750")
         if sys.platform == "win32":
@@ -33,7 +33,6 @@ class MainWindow(ctk.CTk):
         self.deiconify()
         self.focus_force()
 
-        # Безопасный перехватчик закрытия окна
         self.protocol("WM_DELETE_WINDOW", self.on_closing)
 
         self.configure(fg_color="#121316")
@@ -351,7 +350,6 @@ class MainWindow(ctk.CTk):
         self.slider.pack(side="left", expand=True, fill="x", padx=10, pady=10)
 
     def on_closing(self):
-        """Плавное и корректное закрытие приложения без вылетов в Tkinter."""
         self.is_playing = False
         self.stop_analysis_flag = True
 
@@ -521,27 +519,7 @@ class MainWindow(ctk.CTk):
             self.on_shape_slider_change(project_data.get("shape_percent", 100))
 
             self.clear_gallery_ui()
-            self.unique_faces.clear()
-
-            for frame in self.raw_frames:
-                for face in self.detected_boxes_cache.values():
-                    for f in face:
-                        t_id = f['id']
-                        if t_id not in self.unique_faces:
-                            x1, y1, x2, y2 = f['bbox']
-                            crop = frame[max(0, y1):min(frame.shape[0], y2), max(0, x1):min(frame.shape[1], x2)]
-                            if crop.size > 0:
-                                crop_rgb = crop[:, :, ::-1]
-                                pil_img = Image.fromarray(crop_rgb)
-                                pil_img.thumbnail((40, 40))
-                                
-                                is_enabled = active_states.get(t_id, True)
-                                self.unique_faces[t_id] = {
-                                    'pil_image': pil_img,
-                                    'ctk_image': None,
-                                    'enabled': is_enabled,
-                                    'widget': None
-                                }
+            self.build_unique_faces_from_cache(active_states)
 
             self.slider.configure(state="normal", from_=0, to=total - 1, number_of_steps=total)
             self.slider.set(0)
@@ -590,7 +568,7 @@ class MainWindow(ctk.CTk):
         lbl_title = ctk.CTkLabel(dialog, text="FaceBlur Studio", font=("Helvetica", 20, "bold"), text_color="#ffffff")
         lbl_title.pack(pady=(5, 2))
 
-        lbl_ver = ctk.CTkLabel(dialog, text="Версия 1.0.1 (Safe Exit)", font=("Helvetica", 11), text_color="#8a8f9d")
+        lbl_ver = ctk.CTkLabel(dialog, text="Версия 1.0.3 (Thread-Safe Master)", font=("Helvetica", 11), text_color="#8a8f9d")
         lbl_ver.pack(pady=(0, 10))
 
         lbl_desc = ctk.CTkLabel(
@@ -958,29 +936,13 @@ class MainWindow(ctk.CTk):
             self.detected_boxes_cache.clear()
             total_frames = len(self.raw_frames)
 
+            # Чистые математические вычисления в фоновом потоке
             for i, frame in enumerate(self.raw_frames):
                 if self.stop_analysis_flag:
                     break
 
                 tracked_faces = self.detector.track_faces(frame)
                 self.detected_boxes_cache[i] = tracked_faces
-
-                for face in tracked_faces:
-                    t_id = face['id']
-                    if t_id not in self.unique_faces:
-                        x1, y1, x2, y2 = face['bbox']
-                        crop = frame[max(0, y1):min(frame.shape[0], y2), max(0, x1):min(frame.shape[1], x2)]
-                        if crop.size > 0:
-                            crop_rgb = crop[:, :, ::-1]
-                            pil_img = Image.fromarray(crop_rgb)
-                            pil_img.thumbnail((40, 40))
-                            
-                            self.unique_faces[t_id] = {
-                                'pil_image': pil_img,
-                                'ctk_image': None,
-                                'enabled': True,
-                                'widget': None
-                            }
 
                 progress = int(((i + 1) / total_frames) * 100)
                 self.btn_analyze.configure(text=f"⏳ Анализ: {progress}%")
@@ -989,10 +951,42 @@ class MainWindow(ctk.CTk):
         except Exception as e:
             self.after(0, lambda: self.log_error(str(e)))
 
+    def build_unique_faces_from_cache(self, active_states=None):
+        """Безопасный сбор кропов лиц строго в Главном Потоке (Main Thread)"""
+        self.unique_faces.clear()
+        if active_states is None:
+            active_states = {}
+
+        for frame_idx, faces in self.detected_boxes_cache.items():
+            if frame_idx >= len(self.raw_frames):
+                continue
+            frame = self.raw_frames[frame_idx]
+
+            for face in faces:
+                t_id = face['id']
+                if t_id not in self.unique_faces:
+                    x1, y1, x2, y2 = face['bbox']
+                    crop = frame[max(0, y1):min(frame.shape[0], y2), max(0, x1):min(frame.shape[1], x2)]
+                    if crop.size > 0:
+                        crop_rgb = crop[:, :, ::-1]
+                        pil_img = Image.fromarray(crop_rgb)
+                        pil_img.thumbnail((36, 36))
+                        
+                        is_enabled = active_states.get(t_id, True)
+                        self.unique_faces[t_id] = {
+                            'pil_image': pil_img,
+                            'ctk_image': None,
+                            'enabled': is_enabled,
+                            'widget': None
+                        }
+
     def _on_analysis_finished_ui(self):
         self.is_analysing = False
         self.btn_stop.configure(state="disabled")
         
+        # Заполнение структур UI строго в Main Thread
+        self.build_unique_faces_from_cache()
+
         if self.stop_analysis_flag:
             self.btn_analyze.configure(
                 text="⚠️ Остановлен", 
@@ -1019,10 +1013,13 @@ class MainWindow(ctk.CTk):
 
     def populate_gallery_ui(self):
         self.clear_gallery_ui()
-        for t_id, data in sorted(self.unique_faces.items()):
-            row = ctk.CTkFrame(self.gallery_frame, height=48, fg_color="#21242c", border_width=1, border_color="#2f333e")
-            row.pack(fill="x", pady=2, padx=2)
-            row.pack_propagate(False)
+        if not self.unique_faces:
+            return
+
+        for t_id in sorted(self.unique_faces.keys()):
+            data = self.unique_faces[t_id]
+            row = ctk.CTkFrame(self.gallery_frame, height=44, fg_color="#21242c", corner_radius=6, border_width=1, border_color="#2f333e")
+            row.pack(fill="x", pady=3, padx=4)
             data['widget'] = row
 
             pil_img = data['pil_image']
@@ -1030,7 +1027,8 @@ class MainWindow(ctk.CTk):
             data['ctk_image'] = ctk_img
 
             lbl_img = ctk.CTkLabel(row, image=ctk_img, text="", width=36, height=36)
-            lbl_img.pack(side="left", padx=5, pady=4)
+            lbl_img.image = ctk_img
+            lbl_img.pack(side="left", padx=(8, 6), pady=4)
 
             chk = ctk.CTkCheckBox(
                 row, 
@@ -1047,7 +1045,7 @@ class MainWindow(ctk.CTk):
                 chk.select()
             else:
                 chk.deselect()
-            chk.pack(side="left", padx=5, pady=4)
+            chk.pack(side="left", padx=4, pady=4)
 
     def toggle_face_blur(self, track_id):
         if track_id in self.unique_faces:
