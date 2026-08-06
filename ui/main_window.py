@@ -15,6 +15,9 @@ CONFIG_FILE = "config.json"
 ctk.set_appearance_mode("Dark")
 ctk.set_default_color_theme("blue")
 
+# Кроссплатформенный курсор: "pointinghand" для macOS, "hand2" для Windows/Linux
+CURSOR_HAND = "pointinghand" if sys.platform == "darwin" else "hand2"
+
 def get_resource_path(relative_path):
     if hasattr(sys, '_MEIPASS'):
         return os.path.join(sys._MEIPASS, relative_path)
@@ -103,7 +106,7 @@ class MainWindow(ctk.CTk):
             fg_color="#2b2e36",
             hover_color="#383c47",
             text_color="#d1d5db",
-            cursor="pointinghand",
+            cursor=CURSOR_HAND,
             border_width=1,
             border_color="#3a3e4a",
             command=self.open_video
@@ -122,7 +125,7 @@ class MainWindow(ctk.CTk):
             fg_color="#252830",
             hover_color="#323642",
             text_color="#b0b5c0",
-            cursor="pointinghand",
+            cursor=CURSOR_HAND,
             border_width=1,
             border_color="#323642",
             command=self.save_project,
@@ -138,7 +141,7 @@ class MainWindow(ctk.CTk):
             fg_color="#252830",
             hover_color="#323642",
             text_color="#b0b5c0",
-            cursor="pointinghand",
+            cursor=CURSOR_HAND,
             border_width=1,
             border_color="#323642",
             command=self.load_project
@@ -199,7 +202,7 @@ class MainWindow(ctk.CTk):
             text_color="#d1d5db",
             border_width=1,
             border_color="#3a3e4a",
-            cursor="pointinghand",
+            cursor=CURSOR_HAND,
             command=self.start_analysis_thread,
             state="disabled"
         )
@@ -216,7 +219,7 @@ class MainWindow(ctk.CTk):
             text_color="#e54e38",
             border_width=1,
             border_color="#3a3e4a",
-            cursor="pointinghand",
+            cursor=CURSOR_HAND,
             command=self.stop_analysis,
             state="disabled"
         )
@@ -231,7 +234,7 @@ class MainWindow(ctk.CTk):
             checkmark_color="#ffffff",
             fg_color="#e54e38",
             hover_color="#d9532f",
-            cursor="pointinghand",
+            cursor=CURSOR_HAND,
             command=self.on_export_labels_toggle
         )
         if self.settings.get("export_labels", False):
@@ -251,7 +254,7 @@ class MainWindow(ctk.CTk):
             text_color="#717684",
             border_width=1,
             border_color="#3a3e4a",
-            cursor="pointinghand",
+            cursor=CURSOR_HAND,
             command=self.export_video,
             state="disabled"
         )
@@ -291,7 +294,7 @@ class MainWindow(ctk.CTk):
             fg_color="#252830",
             hover_color="#323642",
             text_color="#9ca3af",
-            cursor="pointinghand",
+            cursor=CURSOR_HAND,
             command=self.show_about_dialog
         )
         self.btn_about.pack(padx=15, pady=(5, 8), fill="x", side="bottom")
@@ -329,7 +332,7 @@ class MainWindow(ctk.CTk):
             fg_color="#2b2e36",
             hover_color="#383c47",
             text_color="#d1d5db",
-            cursor="pointinghand",
+            cursor=CURSOR_HAND,
             border_width=1,
             border_color="#3a3e4a",
             command=self.toggle_play,
@@ -366,7 +369,6 @@ class MainWindow(ctk.CTk):
                 self.gallery_frame._parent_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
 
     def on_canvas_double_click(self, event):
-        """Переключение состояния объекта по двойному клику мышью на его рамку"""
         if not self.current_pil_img or not self.raw_frames:
             self.reset_zoom()
             return
@@ -385,14 +387,12 @@ class MainWindow(ctk.CTk):
         img_x1 = center_x - (new_w // 2)
         img_y1 = center_y - (new_h // 2)
 
-        # Вычисляем физические координаты внутри оригинального кадра видео
         click_video_x = int((event.x - img_x1) / scale)
         click_video_y = int((event.y - img_y1) / scale)
 
         faces = self.detected_boxes_cache.get(self.current_frame_idx, [])
         clicked_id = None
 
-        # Проверяем попадание клика в рамку какого-либо объекта
         for face in faces:
             x1, y1, x2, y2 = face['bbox']
             pad_w = int((x2 - x1) * self.blurrer.padding_percent)
@@ -409,9 +409,9 @@ class MainWindow(ctk.CTk):
 
         if clicked_id is not None:
             self.toggle_face_blur(clicked_id)
-            self.populate_gallery_ui()  # Обновляем галочки в галерее
+            self.populate_gallery_ui()
         else:
-            self.reset_zoom()  # Если кликнули мимо объектов — сбрасываем зум
+            self.reset_zoom()
 
     def save_project(self):
         if not self.reader or not self.detected_boxes_cache:
@@ -588,7 +588,7 @@ class MainWindow(ctk.CTk):
             text="© @sirdimitry, 2026", 
             font=("Helvetica", 12, "bold", "underline"), 
             text_color="#e54e38",
-            cursor="pointinghand"
+            cursor=CURSOR_HAND
         )
         lbl_author.pack(pady=(15, 20))
         lbl_author.bind("<Button-1>", lambda e: webbrowser.open("https://x.com/sirdimitry"))
@@ -601,7 +601,7 @@ class MainWindow(ctk.CTk):
             hover_color="#383c47",
             text_color="#d1d5db",
             command=dialog.destroy, 
-            cursor="pointinghand"
+            cursor=CURSOR_HAND
         )
         btn_close.pack(pady=(0, 15))
 
@@ -708,7 +708,8 @@ class MainWindow(ctk.CTk):
         right_width = self.lbl_status_right.winfo_reqwidth()
         available_left_px = max(100, total_width - right_width - 40)
 
-        orig_filename = self.reader.file_path.split('/')[-1]
+        # Вычисляем имя файла с помощью универсальной разбивки для Win/Mac
+        orig_filename = os.path.basename(self.reader.file_path)
         max_chars = max(10, int(available_left_px / 8))
         if len(orig_filename) > max_chars:
             ext = orig_filename.split('.')[-1]
@@ -1028,7 +1029,7 @@ class MainWindow(ctk.CTk):
                 checkmark_color="#ffffff",
                 fg_color="#e54e38",
                 hover_color="#d9532f",
-                cursor="pointinghand",
+                cursor=CURSOR_HAND,
                 command=lambda id_=t_id: self.toggle_face_blur(id_)
             )
             if data['enabled']:
