@@ -2,7 +2,6 @@ import json
 import os
 import sys
 import threading
-import webbrowser
 import customtkinter as ctk
 import tkinter as tk
 from PIL import Image, ImageTk
@@ -10,6 +9,8 @@ from core.video_reader import FFmpegVideoReader
 from core.detector import FaceDetector
 from core.blurrer import FaceBlurrer
 from core.video_writer import FFmpegVideoWriter
+from core.project_manager import ProjectManager
+from ui.dialogs import show_about_dialog, get_resource_path
 
 CONFIG_FILE = "config.json"
 ctk.set_appearance_mode("Dark")
@@ -17,15 +18,10 @@ ctk.set_default_color_theme("blue")
 
 CURSOR_HAND = "pointinghand" if sys.platform == "darwin" else "hand2"
 
-def get_resource_path(relative_path):
-    if hasattr(sys, '_MEIPASS'):
-        return os.path.join(sys._MEIPASS, relative_path)
-    return os.path.join(os.path.abspath("."), relative_path)
-
 class MainWindow(ctk.CTk):
     def __init__(self):
         super().__init__()
-        self.title("FaceBlur Studio — v1.0.3")
+        self.title("FaceBlur Studio — v1.1.0")
         
         self.geometry("1100x750")
         if sys.platform == "win32":
@@ -290,7 +286,7 @@ class MainWindow(ctk.CTk):
             hover_color="#323642",
             text_color="#9ca3af",
             cursor=CURSOR_HAND,
-            command=self.show_about_dialog
+            command=lambda: show_about_dialog(self, CURSOR_HAND)
         )
         self.btn_about.pack(padx=15, pady=(5, 8), fill="x", side="bottom")
 
@@ -374,6 +370,105 @@ class MainWindow(ctk.CTk):
 
         sys.exit(0)
 
+    def save_project(self):
+        if not self.reader or not self.detected_boxes_cache:
+            return
+
+        initial_dir = self.settings.get("last_directory", os.path.expanduser("~"))
+        default_name = os.path.splitext(os.path.basename(self.reader.file_path))[0] + ".fbp"
+
+        file_path = ctk.filedialog.asksaveasfilename(
+            initialdir=initial_dir,
+            initialfile=default_name,
+            defaultextension=".fbp",
+            filetypes=[("FaceBlur Project", "*.fbp")]
+        )
+        if not file_path:
+            return
+
+        try:
+            ProjectManager.save_project(
+                file_path=file_path,
+                video_path=self.reader.file_path,
+                blurrer=self.blurrer,
+                settings=self.settings,
+                chk_export_labels=self.chk_export_labels,
+                detected_boxes_cache=self.detected_boxes_cache,
+                unique_faces=self.unique_faces
+            )
+            self.btn_save_proj.configure(text="✅ Сохранен")
+            self.after(3000, lambda: self.btn_save_proj.configure(text="📁 Сохранить"))
+        except Exception as e:
+            self.log_error(f"Ошибка сохранения: {e}")
+
+    def load_project(self):
+        initial_dir = self.settings.get("last_directory", os.path.expanduser("~"))
+
+        file_path = ctk.filedialog.askopenfilename(
+            initialdir=initial_dir,
+            filetypes=[("FaceBlur Project", "*.fbp")]
+        )
+        if not file_path:
+            return
+
+        try:
+            project_data, detected_boxes_cache, active_states = ProjectManager.load_project(file_path)
+
+            video_path = project_data.get("video_path")
+            if not os.path.exists(video_path):
+                self.log_error("Видео из проекта не найдено по пути!")
+                return
+
+            if self.reader:
+                self.reader.close()
+
+            self.reader = FFmpegVideoReader(video_path)
+            self.update_status_bar_text()
+            self.raw_frames = list(self.reader.read_frames())
+
+            total = len(self.raw_frames)
+            if total == 0:
+                return
+
+            self.detected_boxes_cache = detected_boxes_cache
+
+            self.blur_slider.set(project_data.get("blur_percent", 70))
+            self.on_blur_slider_change(project_data.get("blur_percent", 70))
+
+            self.pad_slider.set(project_data.get("padding_percent", 25))
+            self.on_pad_slider_change(project_data.get("padding_percent", 25))
+
+            self.fade_slider.set(project_data.get("fade_percent", 40))
+            self.on_fade_slider_change(project_data.get("fade_percent", 40))
+
+            self.shape_slider.set(project_data.get("shape_percent", 100))
+            self.on_shape_slider_change(project_data.get("shape_percent", 100))
+
+            self.clear_gallery_ui()
+            self.build_unique_faces_from_cache(active_states)
+
+            self.slider.configure(state="normal", from_=0, to=total - 1, number_of_steps=total)
+            self.slider.set(0)
+            self.btn_play.configure(state="normal")
+            
+            self.btn_analyze.configure(
+                text="✅ Проект загружен", 
+                text_color="#38ef7d",
+                state="normal"
+            )
+            self.btn_save_proj.configure(state="normal")
+            self.btn_export.configure(
+                text="💾 Экспорт", 
+                state="normal", 
+                text_color="#d1d5db"
+            )
+            
+            self.populate_gallery_ui()
+            self.show_frame(0)
+
+        except Exception as e:
+            self.log_error(f"Ошибка загрузки: {e}")
+
     def bind_scroll_events(self, widget):
         widget.bind_all("<MouseWheel>", self._on_generic_scroll)
         widget.bind_all("<Button-4>", lambda e: self.gallery_frame._parent_canvas.yview_scroll(-1, "units"))
@@ -431,176 +526,11 @@ class MainWindow(ctk.CTk):
         else:
             self.reset_zoom()
 
-    def save_project(self):
-        if not self.reader or not self.detected_boxes_cache:
-            return
-
-        initial_dir = self.settings.get("last_directory", os.path.expanduser("~"))
-        default_name = os.path.splitext(os.path.basename(self.reader.file_path))[0] + ".fbp"
-
-        file_path = ctk.filedialog.asksaveasfilename(
-            initialdir=initial_dir,
-            initialfile=default_name,
-            defaultextension=".fbp",
-            filetypes=[("FaceBlur Project", "*.fbp")]
-        )
-        if not file_path:
-            return
-
-        serializable_cache = {}
-        for frame_idx, faces in self.detected_boxes_cache.items():
-            serializable_cache[str(frame_idx)] = faces
-
-        active_states = {str(t_id): data['enabled'] for t_id, data in self.unique_faces.items()}
-
-        project_data = {
-            "video_path": self.reader.file_path,
-            "blur_percent": self.blurrer.kernel_size,
-            "padding_percent": self.settings.get("padding_percent", 25),
-            "fade_percent": self.settings.get("fade_percent", 40),
-            "shape_percent": self.settings.get("shape_percent", 100),
-            "export_labels": bool(self.chk_export_labels.get()),
-            "detected_boxes_cache": serializable_cache,
-            "unique_faces_states": active_states
-        }
-
-        try:
-            with open(file_path, "w", encoding="utf-8") as f:
-                json.dump(project_data, f, ensure_ascii=False, indent=2)
-            self.btn_save_proj.configure(text="✅ Сохранен")
-            self.after(3000, lambda: self.btn_save_proj.configure(text="📁 Сохранить"))
-        except Exception as e:
-            self.log_error(f"Ошибка сохранения: {e}")
-
-    def load_project(self):
-        initial_dir = self.settings.get("last_directory", os.path.expanduser("~"))
-
-        file_path = ctk.filedialog.askopenfilename(
-            initialdir=initial_dir,
-            filetypes=[("FaceBlur Project", "*.fbp")]
-        )
-        if not file_path:
-            return
-
-        try:
-            with open(file_path, "r", encoding="utf-8") as f:
-                project_data = json.load(f)
-
-            video_path = project_data.get("video_path")
-            if not os.path.exists(video_path):
-                self.log_error("Видео из проекта не найдено по пути!")
-                return
-
-            if self.reader:
-                self.reader.close()
-
-            self.reader = FFmpegVideoReader(video_path)
-            self.update_status_bar_text()
-            self.raw_frames = list(self.reader.read_frames())
-
-            total = len(self.raw_frames)
-            if total == 0:
-                return
-
-            raw_cache = project_data.get("detected_boxes_cache", {})
-            self.detected_boxes_cache = {int(k): v for k, v in raw_cache.items()}
-            active_states = {int(k): v for k, v in project_data.get("unique_faces_states", {}).items()}
-
-            self.blur_slider.set(project_data.get("blur_percent", 70))
-            self.on_blur_slider_change(project_data.get("blur_percent", 70))
-
-            self.pad_slider.set(project_data.get("padding_percent", 25))
-            self.on_pad_slider_change(project_data.get("padding_percent", 25))
-
-            self.fade_slider.set(project_data.get("fade_percent", 40))
-            self.on_fade_slider_change(project_data.get("fade_percent", 40))
-
-            self.shape_slider.set(project_data.get("shape_percent", 100))
-            self.on_shape_slider_change(project_data.get("shape_percent", 100))
-
-            self.clear_gallery_ui()
-            self.build_unique_faces_from_cache(active_states)
-
-            self.slider.configure(state="normal", from_=0, to=total - 1, number_of_steps=total)
-            self.slider.set(0)
-            self.btn_play.configure(state="normal")
-            
-            self.btn_analyze.configure(
-                text="✅ Проект загружен", 
-                text_color="#38ef7d",
-                state="normal"
-            )
-            self.btn_save_proj.configure(state="normal")
-            self.btn_export.configure(
-                text="💾 Экспорт", 
-                state="normal", 
-                text_color="#d1d5db"
-            )
-            
-            self.populate_gallery_ui()
-            self.show_frame(0)
-
-        except Exception as e:
-            self.log_error(f"Ошибка загрузки: {e}")
-
     def log_error(self, message: str):
         self.lbl_error_log.configure(text=f"⚠️ {message}")
 
     def clear_error_log(self):
         self.lbl_error_log.configure(text="")
-
-    def show_about_dialog(self):
-        dialog = ctk.CTkToplevel(self)
-        dialog.title("О программе")
-        dialog.geometry("380x440")
-        dialog.configure(fg_color="#181a1f")
-        dialog.resizable(False, False)
-        dialog.transient(self)
-        dialog.grab_set()
-
-        icon_path = get_resource_path("AutoBlureFace_icon.png")
-        if os.path.exists(icon_path):
-            pil_img = Image.open(icon_path)
-            ctk_img = ctk.CTkImage(light_image=pil_img, dark_image=pil_img, size=(128, 128))
-            lbl_img = ctk.CTkLabel(dialog, image=ctk_img, text="")
-            lbl_img.pack(pady=(25, 10))
-
-        lbl_title = ctk.CTkLabel(dialog, text="FaceBlur Studio", font=("Helvetica", 20, "bold"), text_color="#ffffff")
-        lbl_title.pack(pady=(5, 2))
-
-        lbl_ver = ctk.CTkLabel(dialog, text="Версия 1.0.3 (Thread-Safe Master)", font=("Helvetica", 11), text_color="#8a8f9d")
-        lbl_ver.pack(pady=(0, 10))
-
-        lbl_desc = ctk.CTkLabel(
-            dialog, 
-            text="Полностью автоматический локальный\nинструмент защиты приватности на видео\nс использованием YOLOv8-face.", 
-            font=("Helvetica", 12),
-            text_color="#c2c7d0",
-            justify="center"
-        )
-        lbl_desc.pack(pady=10)
-
-        lbl_author = ctk.CTkLabel(
-            dialog, 
-            text="© @sirdimitry, 2026", 
-            font=("Helvetica", 12, "bold", "underline"), 
-            text_color="#e54e38",
-            cursor=CURSOR_HAND
-        )
-        lbl_author.pack(pady=(15, 20))
-        lbl_author.bind("<Button-1>", lambda e: webbrowser.open("https://x.com/sirdimitry"))
-
-        btn_close = ctk.CTkButton(
-            dialog, 
-            text="Закрыть", 
-            width=120, 
-            fg_color="#2b2e36",
-            hover_color="#383c47",
-            text_color="#d1d5db",
-            command=dialog.destroy, 
-            cursor=CURSOR_HAND
-        )
-        btn_close.pack(pady=(0, 15))
 
     def get_shape_text(self, val: int) -> str:
         if val >= 90:
@@ -936,7 +866,6 @@ class MainWindow(ctk.CTk):
             self.detected_boxes_cache.clear()
             total_frames = len(self.raw_frames)
 
-            # Чистые математические вычисления в фоновом потоке
             for i, frame in enumerate(self.raw_frames):
                 if self.stop_analysis_flag:
                     break
@@ -952,7 +881,6 @@ class MainWindow(ctk.CTk):
             self.after(0, lambda: self.log_error(str(e)))
 
     def build_unique_faces_from_cache(self, active_states=None):
-        """Безопасный сбор кропов лиц строго в Главном Потоке (Main Thread)"""
         self.unique_faces.clear()
         if active_states is None:
             active_states = {}
@@ -984,7 +912,6 @@ class MainWindow(ctk.CTk):
         self.is_analysing = False
         self.btn_stop.configure(state="disabled")
         
-        # Заполнение структур UI строго в Main Thread
         self.build_unique_faces_from_cache()
 
         if self.stop_analysis_flag:
@@ -1046,6 +973,8 @@ class MainWindow(ctk.CTk):
             else:
                 chk.deselect()
             chk.pack(side="left", padx=4, pady=4)
+
+        self.gallery_frame.update_idletasks()
 
     def toggle_face_blur(self, track_id):
         if track_id in self.unique_faces:
