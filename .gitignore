@@ -1,0 +1,26 @@
+cat << 'EOF' > .gitignore
+# Виртуальное окружение
+venv/
+ENV/
+env/
+
+# Сборка PyInstaller
+build/
+dist/
+*.spec.bak
+
+# Временные файлы Python
+__pycache__/
+*.py[cod]
+*$py.class
+.DS_Store
+
+# Файлы настроек
+config.json
+
+# Видеофайлы и веса моделей (если они гигабайтные)
+*.mp4
+*.mov
+*.avi
+*.mkv
+EOF
