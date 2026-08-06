@@ -25,7 +25,7 @@ def get_resource_path(relative_path):
 class MainWindow(ctk.CTk):
     def __init__(self):
         super().__init__()
-        self.title("FaceBlur Studio — v0.8")
+        self.title("FaceBlur Studio — v0.9")
         
         self.geometry("1100x750")
         if sys.platform == "win32":
@@ -49,10 +49,8 @@ class MainWindow(ctk.CTk):
         self.current_frame_idx = 0
         
         self.raw_frames = []
-        self.blurred_frames_cache = []
         self.detected_boxes_cache = {}
         self.unique_faces = {}
-        self.reblur_timer = None
 
         self.is_analysing = False
         self.is_exporting = False
@@ -301,7 +299,6 @@ class MainWindow(ctk.CTk):
         self.canvas_container = ctk.CTkFrame(self.right_frame, fg_color="#0c0d0f", border_width=1, border_color="#23262e")
         self.canvas_container.pack(expand=True, fill="both", padx=0, pady=(0, 10))
 
-        # Чистый Canvas Tkinter для быстрой отрисовки видео кадра
         self.canvas = tk.Canvas(self.canvas_container, bg="#0c0d0f", highlightthickness=0)
         self.canvas.pack(expand=True, fill="both")
 
@@ -533,7 +530,6 @@ class MainWindow(ctk.CTk):
             )
             
             self.populate_gallery_ui()
-            self.rebuild_blur_cache()
             self.show_frame(0)
 
         except Exception as e:
@@ -564,7 +560,7 @@ class MainWindow(ctk.CTk):
         lbl_title = ctk.CTkLabel(dialog, text="FaceBlur Studio", font=("Helvetica", 20, "bold"), text_color="#ffffff")
         lbl_title.pack(pady=(5, 2))
 
-        lbl_ver = ctk.CTkLabel(dialog, text="Версия 0.8 (Stable Canvas Edition)", font=("Helvetica", 11), text_color="#8a8f9d")
+        lbl_ver = ctk.CTkLabel(dialog, text="Версия 0.9 (On-the-fly Render)", font=("Helvetica", 11), text_color="#8a8f9d")
         lbl_ver.pack(pady=(0, 10))
 
         lbl_desc = ctk.CTkLabel(
@@ -729,8 +725,6 @@ class MainWindow(ctk.CTk):
         new_h = max(10, int(img_h * scale))
 
         resized_img = self.current_pil_img.resize((new_w, new_h), Image.Resampling.BILINEAR)
-        
-        # Передаем master=self.canvas для гарантированной привязки корневого окна
         self.tk_image_ref = ImageTk.PhotoImage(resized_img, master=self.canvas)
 
         self.canvas.delete("all")
@@ -744,7 +738,7 @@ class MainWindow(ctk.CTk):
         self.lbl_blur_title.configure(text=f"Сила размытия: {val}%")
         self.settings["blur_percent"] = val
         self.save_settings()
-        self.trigger_live_reblur()
+        self.show_frame(self.current_frame_idx)
 
     def on_pad_slider_change(self, value):
         val = int(value)
@@ -752,7 +746,7 @@ class MainWindow(ctk.CTk):
         self.lbl_pad_title.configure(text=f"Размер маски: {val}%")
         self.settings["padding_percent"] = val
         self.save_settings()
-        self.trigger_live_reblur()
+        self.show_frame(self.current_frame_idx)
 
     def on_fade_slider_change(self, value):
         val = int(value)
@@ -760,7 +754,7 @@ class MainWindow(ctk.CTk):
         self.lbl_fade_title.configure(text=f"Мягкость краев (Fade): {val}%")
         self.settings["fade_percent"] = val
         self.save_settings()
-        self.trigger_live_reblur()
+        self.show_frame(self.current_frame_idx)
 
     def on_shape_slider_change(self, value):
         val = int(value)
@@ -768,17 +762,7 @@ class MainWindow(ctk.CTk):
         self.lbl_shape_title.configure(text=f"Форма маски: {self.get_shape_text(val)}")
         self.settings["shape_percent"] = val
         self.save_settings()
-        self.trigger_live_reblur()
-
-    def trigger_live_reblur(self):
-        if self.detected_boxes_cache:
-            self.show_frame(self.current_frame_idx)
-            if self.reblur_timer:
-                self.after_cancel(self.reblur_timer)
-            self.reblur_timer = self.after(300, self.schedule_full_reblur)
-
-    def schedule_full_reblur(self):
-        threading.Thread(target=self.rebuild_blur_cache, daemon=True).start()
+        self.show_frame(self.current_frame_idx)
 
     def open_video(self):
         self.clear_error_log()
@@ -803,7 +787,6 @@ class MainWindow(ctk.CTk):
 
             self.is_playing = False
             self.btn_play.configure(text="▶ Play")
-            self.blurred_frames_cache.clear()
             self.detected_boxes_cache.clear()
             self.unique_faces.clear()
             self.reset_zoom()
@@ -971,7 +954,6 @@ class MainWindow(ctk.CTk):
                 progress = int(((i + 1) / total_frames) * 100)
                 self.btn_analyze.configure(text=f"⏳ Анализ: {progress}%")
 
-            self.rebuild_blur_cache()
             self.after(0, self._on_analysis_finished_ui)
         except Exception as e:
             self.after(0, lambda: self.log_error(str(e)))
@@ -1038,19 +1020,10 @@ class MainWindow(ctk.CTk):
         if track_id in self.unique_faces:
             curr = self.unique_faces[track_id]['enabled']
             self.unique_faces[track_id]['enabled'] = not curr
-            self.trigger_live_reblur()
+            self.show_frame(self.current_frame_idx)
 
     def get_active_blur_ids(self):
         return {t_id for t_id, data in self.unique_faces.items() if data['enabled']}
-
-    def rebuild_blur_cache(self):
-        active_ids = self.get_active_blur_ids()
-        new_cache = []
-        for i, frame in enumerate(self.raw_frames):
-            faces_data = self.detected_boxes_cache.get(i, [])
-            blurred_frame = self.blurrer.apply_blur_and_labels(self.raw_frames[i], faces_data, active_ids)
-            new_cache.append(blurred_frame)
-        self.blurred_frames_cache = new_cache
 
     def update_gallery_highlighting(self, active_frame_ids):
         for t_id, data in self.unique_faces.items():
@@ -1072,12 +1045,8 @@ class MainWindow(ctk.CTk):
         self.update_gallery_highlighting(frame_active_ids)
         active_blur_ids = self.get_active_blur_ids()
 
-        if self.detected_boxes_cache and frame_idx in self.detected_boxes_cache:
-            frame_bgr = self.blurrer.apply_blur_and_labels(self.raw_frames[frame_idx], faces_in_current_frame, active_blur_ids)
-        elif self.blurred_frames_cache and frame_idx < len(self.blurred_frames_cache):
-            frame_bgr = self.blurred_frames_cache[frame_idx]
-        else:
-            frame_bgr = self.raw_frames[frame_idx]
+        # Размытие накладывается на лету (On-the-fly) за миллисекунды для текущего кадра
+        frame_bgr = self.blurrer.apply_blur_and_labels(self.raw_frames[frame_idx], faces_in_current_frame, active_blur_ids)
 
         frame_rgb = frame_bgr[:, :, ::-1]
         self.current_pil_img = Image.fromarray(frame_rgb)
