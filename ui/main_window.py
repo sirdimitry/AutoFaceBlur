@@ -5,7 +5,7 @@ import threading
 import webbrowser
 import customtkinter as ctk
 import tkinter as tk
-from PIL import Image
+from PIL import Image, ImageTk
 from core.video_reader import FFmpegVideoReader
 from core.detector import FaceDetector
 from core.blurrer import FaceBlurrer
@@ -15,7 +15,6 @@ CONFIG_FILE = "config.json"
 ctk.set_appearance_mode("Dark")
 ctk.set_default_color_theme("blue")
 
-# Кроссплатформенный курсор: "pointinghand" для macOS, "hand2" для Windows/Linux
 CURSOR_HAND = "pointinghand" if sys.platform == "darwin" else "hand2"
 
 def get_resource_path(relative_path):
@@ -28,7 +27,6 @@ class MainWindow(ctk.CTk):
         super().__init__()
         self.title("FaceBlur Studio — v0.8")
         
-        # Геометрия с учётом совместимости Windows/macOS
         self.geometry("1100x750")
         if sys.platform == "win32":
             self.state("zoomed")
@@ -66,8 +64,9 @@ class MainWindow(ctk.CTk):
         self.drag_start_x = 0
         self.drag_start_y = 0
         self.current_pil_img = None
+        self.tk_image_ref = None
 
-        # Нижняя строка состояния DaVinci Style
+        # Нижняя строка состояния
         self.status_bar = ctk.CTkFrame(self, height=28, corner_radius=0, fg_color="#16171a", border_width=1, border_color="#262930")
         self.status_bar.pack(side="bottom", fill="x")
         self.status_bar.bind("<Configure>", self.on_status_bar_resize)
@@ -90,11 +89,10 @@ class MainWindow(ctk.CTk):
         )
         self.lbl_status_left.pack(side="left", padx=(15, 5), pady=2, fill="x", expand=True)
 
-        # Левая панель (Inspector DaVinci Style)
+        # Левая панель Инспектора
         self.sidebar = ctk.CTkFrame(self, width=310, corner_radius=0, fg_color="#1e2025", border_width=1, border_color="#2b2e36")
         self.sidebar.pack(side="left", fill="y", padx=0, pady=0)
 
-        # Заголовок Инспектора
         self.lbl_inspector_header = ctk.CTkLabel(
             self.sidebar,
             text="INSPECTOR / НАСТРОЙКИ",
@@ -119,7 +117,6 @@ class MainWindow(ctk.CTk):
         )
         self.btn_open.pack(padx=15, pady=(0, 6), fill="x")
 
-        # Кнопки проекта
         self.project_btn_frame = ctk.CTkFrame(self.sidebar, fg_color="transparent")
         self.project_btn_frame.pack(padx=15, pady=(0, 10), fill="x")
 
@@ -154,11 +151,9 @@ class MainWindow(ctk.CTk):
         )
         self.btn_load_proj.pack(side="right", expand=True, fill="x", padx=(2, 0))
 
-        # Разделитель
         self.div1 = ctk.CTkFrame(self.sidebar, height=1, fg_color="#2b2e36")
         self.div1.pack(fill="x", padx=15, pady=5)
 
-        # Настройки слайдеров
         blur_val = self.settings.get("blur_percent", 70)
         self.lbl_blur_title = ctk.CTkLabel(self.sidebar, text=f"Сила размытия: {blur_val}%", font=("Helvetica", 11), text_color="#c2c7d0")
         self.lbl_blur_title.pack(padx=15, pady=(4, 0), anchor="w")
@@ -194,7 +189,6 @@ class MainWindow(ctk.CTk):
         self.div2 = ctk.CTkFrame(self.sidebar, height=1, fg_color="#2b2e36")
         self.div2.pack(fill="x", padx=15, pady=5)
 
-        # Детекция и Стоп
         self.analysis_btn_frame = ctk.CTkFrame(self.sidebar, fg_color="transparent")
         self.analysis_btn_frame.pack(padx=15, pady=4, fill="x")
 
@@ -231,7 +225,6 @@ class MainWindow(ctk.CTk):
         )
         self.btn_stop.pack(side="right")
 
-        # Чекбокс
         self.chk_export_labels = ctk.CTkCheckBox(
             self.sidebar,
             text="Сохранять номера ID в видео",
@@ -249,7 +242,6 @@ class MainWindow(ctk.CTk):
             self.chk_export_labels.deselect()
         self.chk_export_labels.pack(padx=15, pady=(6, 4), anchor="w")
 
-        # Кнопка Экспорта
         self.btn_export = ctk.CTkButton(
             self.sidebar,
             text="💾 Экспорт",
@@ -266,7 +258,6 @@ class MainWindow(ctk.CTk):
         )
         self.btn_export.pack(padx=15, pady=(4, 2), fill="x")
 
-        # Прогресс-бар экспорта (DaVinci Red)
         self.export_progress = ctk.CTkProgressBar(self.sidebar, height=4, progress_color="#e54e38", fg_color="#16171a")
         self.export_progress.set(0)
         self.export_progress.pack(padx=15, pady=(0, 6), fill="x")
@@ -279,7 +270,6 @@ class MainWindow(ctk.CTk):
 
         self.bind_scroll_events(self.gallery_frame)
 
-        # Ошибки
         self.lbl_error_log = ctk.CTkLabel(
             self.sidebar,
             text="",
@@ -291,7 +281,6 @@ class MainWindow(ctk.CTk):
         )
         self.lbl_error_log.pack(padx=15, pady=(2, 2), fill="x", side="bottom")
 
-        # Кнопка "О программе"
         self.btn_about = ctk.CTkButton(
             self.sidebar,
             text="ℹ️ О программе",
@@ -305,26 +294,26 @@ class MainWindow(ctk.CTk):
         )
         self.btn_about.pack(padx=15, pady=(5, 8), fill="x", side="bottom")
 
-        # Правая часть (Viewer Canvas Container)
+        # Правая часть (Canvas)
         self.right_frame = ctk.CTkFrame(self, fg_color="transparent")
         self.right_frame.pack(side="right", expand=True, fill="both", padx=10, pady=10)
 
         self.canvas_container = ctk.CTkFrame(self.right_frame, fg_color="#0c0d0f", border_width=1, border_color="#23262e")
         self.canvas_container.pack(expand=True, fill="both", padx=0, pady=(0, 10))
 
-        # Виджет вывода кадров через CTkLabel вместо tk.Canvas для стабильности в Windows
-        self.video_display = ctk.CTkLabel(self.canvas_container, text="", fg_color="#0c0d0f")
-        self.video_display.pack(expand=True, fill="both")
+        # Чистый Canvas Tkinter для быстрой отрисовки видео кадра
+        self.canvas = tk.Canvas(self.canvas_container, bg="#0c0d0f", highlightthickness=0)
+        self.canvas.pack(expand=True, fill="both")
 
-        self.video_display.bind("<Configure>", self.on_canvas_resize)
-        self.video_display.bind("<MouseWheel>", self.on_mouse_wheel)
-        self.video_display.bind("<Button-4>", lambda e: self.on_mouse_zoom_step(1.05))
-        self.video_display.bind("<Button-5>", lambda e: self.on_mouse_zoom_step(0.95))
-        self.video_display.bind("<ButtonPress-1>", self.on_drag_start)
-        self.video_display.bind("<B1-Motion>", self.on_drag_motion)
-        self.video_display.bind("<Double-Button-1>", self.on_canvas_double_click)
+        self.canvas.bind("<Configure>", self.on_canvas_resize)
+        self.canvas.bind("<MouseWheel>", self.on_mouse_wheel)
+        self.canvas.bind("<Button-4>", lambda e: self.on_mouse_zoom_step(1.05))
+        self.canvas.bind("<Button-5>", lambda e: self.on_mouse_zoom_step(0.95))
+        self.canvas.bind("<ButtonPress-1>", self.on_drag_start)
+        self.canvas.bind("<B1-Motion>", self.on_drag_motion)
+        self.canvas.bind("<Double-Button-1>", self.on_canvas_double_click)
 
-        # Элементы управления плеером
+        # Плеер
         self.player_controls = ctk.CTkFrame(self.right_frame, height=50, fg_color="#181a1f", border_width=1, border_color="#262930")
         self.player_controls.pack(fill="x", side="bottom", padx=0, pady=0)
 
@@ -378,8 +367,8 @@ class MainWindow(ctk.CTk):
             self.reset_zoom()
             return
 
-        canvas_w = self.video_display.winfo_width()
-        canvas_h = self.video_display.winfo_height()
+        canvas_w = self.canvas.winfo_width()
+        canvas_h = self.canvas.winfo_height()
         img_w, img_h = self.current_pil_img.size
 
         scale = min(canvas_w / img_w, canvas_h / img_h) * self.zoom_factor
@@ -575,7 +564,7 @@ class MainWindow(ctk.CTk):
         lbl_title = ctk.CTkLabel(dialog, text="FaceBlur Studio", font=("Helvetica", 20, "bold"), text_color="#ffffff")
         lbl_title.pack(pady=(5, 2))
 
-        lbl_ver = ctk.CTkLabel(dialog, text="Версия 0.8 (Cross-Platform Native)", font=("Helvetica", 11), text_color="#8a8f9d")
+        lbl_ver = ctk.CTkLabel(dialog, text="Версия 0.8 (Stable Canvas Edition)", font=("Helvetica", 11), text_color="#8a8f9d")
         lbl_ver.pack(pady=(0, 10))
 
         lbl_desc = ctk.CTkLabel(
@@ -727,8 +716,8 @@ class MainWindow(ctk.CTk):
         if not self.current_pil_img:
             return
 
-        canvas_w = self.video_display.winfo_width()
-        canvas_h = self.video_display.winfo_height()
+        canvas_w = self.canvas.winfo_width()
+        canvas_h = self.canvas.winfo_height()
 
         if canvas_w < 50 or canvas_h < 50:
             return
@@ -739,9 +728,15 @@ class MainWindow(ctk.CTk):
         new_w = max(10, int(img_w * scale))
         new_h = max(10, int(img_h * scale))
 
-        # Стабильное отображение кадров через CTkImage (без Pillow PhotoImage)
-        ctk_img = ctk.CTkImage(light_image=self.current_pil_img, dark_image=self.current_pil_img, size=(new_w, new_h))
-        self.video_display.configure(image=ctk_img)
+        resized_img = self.current_pil_img.resize((new_w, new_h), Image.Resampling.BILINEAR)
+        
+        # Передаем master=self.canvas для гарантированной привязки корневого окна
+        self.tk_image_ref = ImageTk.PhotoImage(resized_img, master=self.canvas)
+
+        self.canvas.delete("all")
+        center_x = (canvas_w // 2) + self.pan_x
+        center_y = (canvas_h // 2) + self.pan_y
+        self.canvas.create_image(center_x, center_y, image=self.tk_image_ref, anchor="center")
 
     def on_blur_slider_change(self, value):
         val = int(value)
