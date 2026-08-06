@@ -5,7 +5,7 @@ import threading
 import webbrowser
 import customtkinter as ctk
 import tkinter as tk
-from PIL import Image, ImageTk
+from PIL import Image
 from core.video_reader import FFmpegVideoReader
 from core.detector import FaceDetector
 from core.blurrer import FaceBlurrer
@@ -26,7 +26,7 @@ def get_resource_path(relative_path):
 class MainWindow(ctk.CTk):
     def __init__(self):
         super().__init__()
-        self.title("FaceBlur Studio — v0.7")
+        self.title("FaceBlur Studio — v0.8")
         
         # Геометрия с учётом совместимости Windows/macOS
         self.geometry("1100x750")
@@ -66,7 +66,6 @@ class MainWindow(ctk.CTk):
         self.drag_start_x = 0
         self.drag_start_y = 0
         self.current_pil_img = None
-        self.tk_image_ref = None
 
         # Нижняя строка состояния DaVinci Style
         self.status_bar = ctk.CTkFrame(self, height=28, corner_radius=0, fg_color="#16171a", border_width=1, border_color="#262930")
@@ -306,25 +305,24 @@ class MainWindow(ctk.CTk):
         )
         self.btn_about.pack(padx=15, pady=(5, 8), fill="x", side="bottom")
 
-        # Правая часть (Viewer Canvas)
+        # Правая часть (Viewer Canvas Container)
         self.right_frame = ctk.CTkFrame(self, fg_color="transparent")
         self.right_frame.pack(side="right", expand=True, fill="both", padx=10, pady=10)
 
         self.canvas_container = ctk.CTkFrame(self.right_frame, fg_color="#0c0d0f", border_width=1, border_color="#23262e")
         self.canvas_container.pack(expand=True, fill="both", padx=0, pady=(0, 10))
 
-        self.canvas = tk.Canvas(self.canvas_container, bg="#0c0d0f", highlightthickness=0)
-        self.canvas.pack(expand=True, fill="both")
+        # Виджет вывода кадров через CTkLabel вместо tk.Canvas для стабильности в Windows
+        self.video_display = ctk.CTkLabel(self.canvas_container, text="", fg_color="#0c0d0f")
+        self.video_display.pack(expand=True, fill="both")
 
-        self.canvas.bind("<Configure>", self.on_canvas_resize)
-        self.canvas.bind("<MouseWheel>", self.on_mouse_wheel)
-        self.canvas.bind("<Button-4>", lambda e: self.on_mouse_zoom_step(1.05))
-        self.canvas.bind("<Button-5>", lambda e: self.on_mouse_zoom_step(0.95))
-        self.canvas.bind("<ButtonPress-1>", self.on_drag_start)
-        self.canvas.bind("<B1-Motion>", self.on_drag_motion)
-        
-        # Двойной клик на кадре для включения/выключения размытия объекта
-        self.canvas.bind("<Double-Button-1>", self.on_canvas_double_click)
+        self.video_display.bind("<Configure>", self.on_canvas_resize)
+        self.video_display.bind("<MouseWheel>", self.on_mouse_wheel)
+        self.video_display.bind("<Button-4>", lambda e: self.on_mouse_zoom_step(1.05))
+        self.video_display.bind("<Button-5>", lambda e: self.on_mouse_zoom_step(0.95))
+        self.video_display.bind("<ButtonPress-1>", self.on_drag_start)
+        self.video_display.bind("<B1-Motion>", self.on_drag_motion)
+        self.video_display.bind("<Double-Button-1>", self.on_canvas_double_click)
 
         # Элементы управления плеером
         self.player_controls = ctk.CTkFrame(self.right_frame, height=50, fg_color="#181a1f", border_width=1, border_color="#262930")
@@ -380,8 +378,8 @@ class MainWindow(ctk.CTk):
             self.reset_zoom()
             return
 
-        canvas_w = self.canvas.winfo_width()
-        canvas_h = self.canvas.winfo_height()
+        canvas_w = self.video_display.winfo_width()
+        canvas_h = self.video_display.winfo_height()
         img_w, img_h = self.current_pil_img.size
 
         scale = min(canvas_w / img_w, canvas_h / img_h) * self.zoom_factor
@@ -522,7 +520,6 @@ class MainWindow(ctk.CTk):
                                 pil_img = Image.fromarray(crop_rgb)
                                 pil_img.thumbnail((50, 50))
                                 
-                                # Исправление совместимости для Windows (сохраняем PIL, а не CTkImage)
                                 is_enabled = active_states.get(t_id, True)
                                 self.unique_faces[t_id] = {
                                     'pil_image': pil_img,
@@ -578,7 +575,7 @@ class MainWindow(ctk.CTk):
         lbl_title = ctk.CTkLabel(dialog, text="FaceBlur Studio", font=("Helvetica", 20, "bold"), text_color="#ffffff")
         lbl_title.pack(pady=(5, 2))
 
-        lbl_ver = ctk.CTkLabel(dialog, text="Версия 0.7 (Cross-Platform)", font=("Helvetica", 11), text_color="#8a8f9d")
+        lbl_ver = ctk.CTkLabel(dialog, text="Версия 0.8 (Cross-Platform Native)", font=("Helvetica", 11), text_color="#8a8f9d")
         lbl_ver.pack(pady=(0, 10))
 
         lbl_desc = ctk.CTkLabel(
@@ -730,8 +727,8 @@ class MainWindow(ctk.CTk):
         if not self.current_pil_img:
             return
 
-        canvas_w = self.canvas.winfo_width()
-        canvas_h = self.canvas.winfo_height()
+        canvas_w = self.video_display.winfo_width()
+        canvas_h = self.video_display.winfo_height()
 
         if canvas_w < 50 or canvas_h < 50:
             return
@@ -742,13 +739,9 @@ class MainWindow(ctk.CTk):
         new_w = max(10, int(img_w * scale))
         new_h = max(10, int(img_h * scale))
 
-        resized_img = self.current_pil_img.resize((new_w, new_h), Image.Resampling.BILINEAR)
-        self.tk_image_ref = ImageTk.PhotoImage(resized_img)
-
-        self.canvas.delete("all")
-        center_x = (canvas_w // 2) + self.pan_x
-        center_y = (canvas_h // 2) + self.pan_y
-        self.canvas.create_image(center_x, center_y, image=self.tk_image_ref, anchor="center")
+        # Стабильное отображение кадров через CTkImage (без Pillow PhotoImage)
+        ctk_img = ctk.CTkImage(light_image=self.current_pil_img, dark_image=self.current_pil_img, size=(new_w, new_h))
+        self.video_display.configure(image=ctk_img)
 
     def on_blur_slider_change(self, value):
         val = int(value)
@@ -974,7 +967,6 @@ class MainWindow(ctk.CTk):
                             pil_img = Image.fromarray(crop_rgb)
                             pil_img.thumbnail((50, 50))
                             
-                            # Исправление совместимости для Windows (сохраняем PIL в фоне)
                             self.unique_faces[t_id] = {
                                 'pil_image': pil_img,
                                 'enabled': True,
@@ -1024,7 +1016,6 @@ class MainWindow(ctk.CTk):
             row.pack(fill="x", pady=3, padx=2)
             data['widget'] = row
 
-            # Создаем CTkImage строго в основном потоке UI для совместимости с Windows
             pil_img = data['pil_image']
             ctk_img = ctk.CTkImage(light_image=pil_img, dark_image=pil_img, size=pil_img.size)
 
@@ -1062,7 +1053,7 @@ class MainWindow(ctk.CTk):
         new_cache = []
         for i, frame in enumerate(self.raw_frames):
             faces_data = self.detected_boxes_cache.get(i, [])
-            blurred_frame = self.blurrer.apply_blur_and_labels(frame, faces_data, active_ids)
+            blurred_frame = self.blurrer.apply_blur_and_labels(self.raw_frames[i], faces_data, active_ids)
             new_cache.append(blurred_frame)
         self.blurred_frames_cache = new_cache
 
