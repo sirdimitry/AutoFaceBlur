@@ -27,7 +27,11 @@ class MainWindow(ctk.CTk):
     def __init__(self):
         super().__init__()
         self.title("FaceBlur Studio — v0.7")
-        self.geometry("1280x1000")
+        self.geometry("1100x700")
+        if sys.platform == "win32":
+            self.state("zoomed")
+        self.deiconify()
+        self.focus_force()
         self.configure(fg_color="#121316")
 
         self.settings = self.load_settings()
