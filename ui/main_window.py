@@ -25,13 +25,16 @@ def get_resource_path(relative_path):
 class MainWindow(ctk.CTk):
     def __init__(self):
         super().__init__()
-        self.title("FaceBlur Studio — v0.9")
+        self.title("FaceBlur Studio — v1.0.1")
         
         self.geometry("1100x750")
         if sys.platform == "win32":
             self.state("zoomed")
         self.deiconify()
         self.focus_force()
+
+        # Безопасный перехватчик закрытия окна
+        self.protocol("WM_DELETE_WINDOW", self.on_closing)
 
         self.configure(fg_color="#121316")
 
@@ -347,6 +350,32 @@ class MainWindow(ctk.CTk):
         )
         self.slider.pack(side="left", expand=True, fill="x", padx=10, pady=10)
 
+    def on_closing(self):
+        """Плавное и корректное закрытие приложения без вылетов в Tkinter."""
+        self.is_playing = False
+        self.stop_analysis_flag = True
+
+        if self.reader:
+            try:
+                self.reader.close()
+            except Exception:
+                pass
+
+        try:
+            self.clear_gallery_ui()
+            self.unique_faces.clear()
+            self.raw_frames.clear()
+        except Exception:
+            pass
+
+        try:
+            self.quit()
+            self.destroy()
+        except Exception:
+            pass
+
+        sys.exit(0)
+
     def bind_scroll_events(self, widget):
         widget.bind_all("<MouseWheel>", self._on_generic_scroll)
         widget.bind_all("<Button-4>", lambda e: self.gallery_frame._parent_canvas.yview_scroll(-1, "units"))
@@ -504,11 +533,12 @@ class MainWindow(ctk.CTk):
                             if crop.size > 0:
                                 crop_rgb = crop[:, :, ::-1]
                                 pil_img = Image.fromarray(crop_rgb)
-                                pil_img.thumbnail((50, 50))
+                                pil_img.thumbnail((40, 40))
                                 
                                 is_enabled = active_states.get(t_id, True)
                                 self.unique_faces[t_id] = {
                                     'pil_image': pil_img,
+                                    'ctk_image': None,
                                     'enabled': is_enabled,
                                     'widget': None
                                 }
@@ -560,7 +590,7 @@ class MainWindow(ctk.CTk):
         lbl_title = ctk.CTkLabel(dialog, text="FaceBlur Studio", font=("Helvetica", 20, "bold"), text_color="#ffffff")
         lbl_title.pack(pady=(5, 2))
 
-        lbl_ver = ctk.CTkLabel(dialog, text="Версия 0.9 (On-the-fly Render)", font=("Helvetica", 11), text_color="#8a8f9d")
+        lbl_ver = ctk.CTkLabel(dialog, text="Версия 1.0.1 (Safe Exit)", font=("Helvetica", 11), text_color="#8a8f9d")
         lbl_ver.pack(pady=(0, 10))
 
         lbl_desc = ctk.CTkLabel(
@@ -943,10 +973,11 @@ class MainWindow(ctk.CTk):
                         if crop.size > 0:
                             crop_rgb = crop[:, :, ::-1]
                             pil_img = Image.fromarray(crop_rgb)
-                            pil_img.thumbnail((50, 50))
+                            pil_img.thumbnail((40, 40))
                             
                             self.unique_faces[t_id] = {
                                 'pil_image': pil_img,
+                                'ctk_image': None,
                                 'enabled': True,
                                 'widget': None
                             }
@@ -988,21 +1019,23 @@ class MainWindow(ctk.CTk):
 
     def populate_gallery_ui(self):
         self.clear_gallery_ui()
-        for t_id, data in self.unique_faces.items():
-            row = ctk.CTkFrame(self.gallery_frame, fg_color="#21242c", border_width=1, border_color="#2f333e")
-            row.pack(fill="x", pady=3, padx=2)
+        for t_id, data in sorted(self.unique_faces.items()):
+            row = ctk.CTkFrame(self.gallery_frame, height=48, fg_color="#21242c", border_width=1, border_color="#2f333e")
+            row.pack(fill="x", pady=2, padx=2)
+            row.pack_propagate(False)
             data['widget'] = row
 
             pil_img = data['pil_image']
-            ctk_img = ctk.CTkImage(light_image=pil_img, dark_image=pil_img, size=pil_img.size)
+            ctk_img = ctk.CTkImage(light_image=pil_img, dark_image=pil_img, size=(36, 36))
+            data['ctk_image'] = ctk_img
 
-            lbl_img = ctk.CTkLabel(row, image=ctk_img, text="")
-            lbl_img.pack(side="left", padx=5)
+            lbl_img = ctk.CTkLabel(row, image=ctk_img, text="", width=36, height=36)
+            lbl_img.pack(side="left", padx=5, pady=4)
 
             chk = ctk.CTkCheckBox(
                 row, 
                 text=f"Объект #{t_id:02d}", 
-                font=("Helvetica", 11),
+                font=("Helvetica", 11, "bold"),
                 text_color="#d1d5db",
                 checkmark_color="#ffffff",
                 fg_color="#e54e38",
@@ -1014,7 +1047,7 @@ class MainWindow(ctk.CTk):
                 chk.select()
             else:
                 chk.deselect()
-            chk.pack(side="left", padx=5)
+            chk.pack(side="left", padx=5, pady=4)
 
     def toggle_face_blur(self, track_id):
         if track_id in self.unique_faces:
@@ -1045,7 +1078,6 @@ class MainWindow(ctk.CTk):
         self.update_gallery_highlighting(frame_active_ids)
         active_blur_ids = self.get_active_blur_ids()
 
-        # Размытие накладывается на лету (On-the-fly) за миллисекунды для текущего кадра
         frame_bgr = self.blurrer.apply_blur_and_labels(self.raw_frames[frame_idx], faces_in_current_frame, active_blur_ids)
 
         frame_rgb = frame_bgr[:, :, ::-1]
