@@ -27,11 +27,14 @@ class MainWindow(ctk.CTk):
     def __init__(self):
         super().__init__()
         self.title("FaceBlur Studio — v0.7")
-        self.geometry("1100x700")
+        
+        # Геометрия с учётом совместимости Windows/macOS
+        self.geometry("1100x750")
         if sys.platform == "win32":
             self.state("zoomed")
         self.deiconify()
         self.focus_force()
+
         self.configure(fg_color="#121316")
 
         self.settings = self.load_settings()
@@ -518,11 +521,11 @@ class MainWindow(ctk.CTk):
                                 crop_rgb = crop[:, :, ::-1]
                                 pil_img = Image.fromarray(crop_rgb)
                                 pil_img.thumbnail((50, 50))
-                                ctk_img = ctk.CTkImage(light_image=pil_img, dark_image=pil_img, size=pil_img.size)
                                 
+                                # Исправление совместимости для Windows (сохраняем PIL, а не CTkImage)
                                 is_enabled = active_states.get(t_id, True)
                                 self.unique_faces[t_id] = {
-                                    'image': ctk_img,
+                                    'pil_image': pil_img,
                                     'enabled': is_enabled,
                                     'widget': None
                                 }
@@ -575,7 +578,7 @@ class MainWindow(ctk.CTk):
         lbl_title = ctk.CTkLabel(dialog, text="FaceBlur Studio", font=("Helvetica", 20, "bold"), text_color="#ffffff")
         lbl_title.pack(pady=(5, 2))
 
-        lbl_ver = ctk.CTkLabel(dialog, text="Версия 0.7 (DaVinci Edition)", font=("Helvetica", 11), text_color="#8a8f9d")
+        lbl_ver = ctk.CTkLabel(dialog, text="Версия 0.7 (Cross-Platform)", font=("Helvetica", 11), text_color="#8a8f9d")
         lbl_ver.pack(pady=(0, 10))
 
         lbl_desc = ctk.CTkLabel(
@@ -712,7 +715,6 @@ class MainWindow(ctk.CTk):
         right_width = self.lbl_status_right.winfo_reqwidth()
         available_left_px = max(100, total_width - right_width - 40)
 
-        # Вычисляем имя файла с помощью универсальной разбивки для Win/Mac
         orig_filename = os.path.basename(self.reader.file_path)
         max_chars = max(10, int(available_left_px / 8))
         if len(orig_filename) > max_chars:
@@ -971,10 +973,10 @@ class MainWindow(ctk.CTk):
                             crop_rgb = crop[:, :, ::-1]
                             pil_img = Image.fromarray(crop_rgb)
                             pil_img.thumbnail((50, 50))
-                            ctk_img = ctk.CTkImage(light_image=pil_img, dark_image=pil_img, size=pil_img.size)
                             
+                            # Исправление совместимости для Windows (сохраняем PIL в фоне)
                             self.unique_faces[t_id] = {
-                                'image': ctk_img,
+                                'pil_image': pil_img,
                                 'enabled': True,
                                 'widget': None
                             }
@@ -1022,7 +1024,11 @@ class MainWindow(ctk.CTk):
             row.pack(fill="x", pady=3, padx=2)
             data['widget'] = row
 
-            lbl_img = ctk.CTkLabel(row, image=data['image'], text="")
+            # Создаем CTkImage строго в основном потоке UI для совместимости с Windows
+            pil_img = data['pil_image']
+            ctk_img = ctk.CTkImage(light_image=pil_img, dark_image=pil_img, size=pil_img.size)
+
+            lbl_img = ctk.CTkLabel(row, image=ctk_img, text="")
             lbl_img.pack(side="left", padx=5)
 
             chk = ctk.CTkCheckBox(
