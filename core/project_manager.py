@@ -1,6 +1,4 @@
 import json
-import os
-import customtkinter as ctk
 
 class ProjectManager:
     @staticmethod

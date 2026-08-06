@@ -1,21 +1,27 @@
-import sys
 import os
+import sys
 import time
 import threading
 import traceback
+
+# Фиксация корня проекта в sys.path для корректных импортов core и ui
+PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
+
 import customtkinter as ctk
 from PIL import Image
 
 def get_resource_path(relative_path):
     if hasattr(sys, '_MEIPASS'):
         return os.path.join(sys._MEIPASS, relative_path)
-    return os.path.join(os.path.abspath("."), relative_path)
+    return os.path.join(PROJECT_ROOT, relative_path)
 
 class SmartSplashScreen(ctk.CTk):
     def __init__(self):
         super().__init__()
         
-        # Скрываем окно при старте (отрисовываем только если будет задержка или ошибка)
+        # Скрываем окно при старте
         self.withdraw()
         self.overrideredirect(True)
         
@@ -43,17 +49,18 @@ class SmartSplashScreen(ctk.CTk):
         lbl_title = ctk.CTkLabel(self.main_frame, text="FaceBlur Studio", font=("Helvetica", 20, "bold"), text_color="#ffffff")
         lbl_title.pack(pady=(2, 2))
 
-        lbl_sub = ctk.CTkLabel(self.main_frame, text="Версия 0.7 — Загрузка системы...", font=("Helvetica", 11), text_color="#8a8f9d")
+        lbl_sub = ctk.CTkLabel(self.main_frame, text="Версия 1.1.0 — Загрузка системы...", font=("Helvetica", 11), text_color="#8a8f9d")
         lbl_sub.pack(pady=(0, 10))
 
         self.txt_error = ctk.CTkTextbox(
             self.main_frame, 
-            height=90, 
+            height=160, 
             fg_color="#181a1f", 
             text_color="#ff5555", 
             font=("Consolas", 10), 
             border_width=1, 
-            border_color="#442222"
+            border_color="#442222",
+            activate_scrollbars=True
         )
 
         self.btn_close = ctk.CTkButton(
@@ -97,11 +104,22 @@ class SmartSplashScreen(ctk.CTk):
         self.lbl_status.configure(text=text, text_color="#8a8f9d")
 
     def show_error(self, err_msg: str):
+        # При ошибке возвращаем рамки окна, чтобы его можно было перемещать и менять размер
+        self.overrideredirect(False)
+        
+        # Динамически увеличиваем размер окна под Traceback
+        sw = self.winfo_screenwidth()
+        sh = self.winfo_screenheight()
+        w, h = 680, 480
+        x = (sw - w) // 2
+        y = (sh - h) // 2
+        self.geometry(f"{w}x{h}+{x}+{y}")
+        
         self.reveal_if_slow()
         last_line = [line for line in err_msg.splitlines() if line.strip()][-1]
         self.lbl_status.configure(text=f"⚠️ {last_line}", text_color="#e54e38")
         
-        self.txt_error.pack(padx=20, pady=(0, 8), fill="x")
+        self.txt_error.pack(padx=20, pady=(0, 8), fill="both", expand=True)
         self.txt_error.insert("1.0", err_msg)
         self.txt_error.configure(state="disabled")
         

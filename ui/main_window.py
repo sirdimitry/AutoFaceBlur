@@ -507,7 +507,7 @@ class MainWindow(ctk.CTk):
         clicked_id = None
 
         for face in faces:
-            x1, y1, x2, y2 = face['bbox']
+            x1, y1, x2, y2 = [int(v) for v in face['bbox']]
             pad_w = int((x2 - x1) * self.blurrer.padding_percent)
             pad_h = int((y2 - y1) * self.blurrer.padding_percent)
 
@@ -893,20 +893,25 @@ class MainWindow(ctk.CTk):
             for face in faces:
                 t_id = face['id']
                 if t_id not in self.unique_faces:
-                    x1, y1, x2, y2 = face['bbox']
-                    crop = frame[max(0, y1):min(frame.shape[0], y2), max(0, x1):min(frame.shape[1], x2)]
-                    if crop.size > 0:
-                        crop_rgb = crop[:, :, ::-1]
-                        pil_img = Image.fromarray(crop_rgb)
-                        pil_img.thumbnail((36, 36))
-                        
-                        is_enabled = active_states.get(t_id, True)
-                        self.unique_faces[t_id] = {
-                            'pil_image': pil_img,
-                            'ctk_image': None,
-                            'enabled': is_enabled,
-                            'widget': None
-                        }
+                    x1, y1, x2, y2 = [int(v) for v in face['bbox']]
+                    h, w = frame.shape[:2]
+                    x1, y1 = max(0, x1), max(0, y1)
+                    x2, y2 = min(w, x2), min(h, y2)
+
+                    if x2 > x1 and y2 > y1:
+                        crop = frame[y1:y2, x1:x2]
+                        if crop.size > 0:
+                            crop_rgb = crop[:, :, ::-1]
+                            pil_img = Image.fromarray(crop_rgb)
+                            pil_img.thumbnail((36, 36))
+                            
+                            is_enabled = active_states.get(str(t_id), active_states.get(t_id, True))
+                            self.unique_faces[t_id] = {
+                                'pil_image': pil_img,
+                                'ctk_image': None,
+                                'enabled': is_enabled,
+                                'widget': None
+                            }
 
     def _on_analysis_finished_ui(self):
         self.is_analysing = False
@@ -945,7 +950,7 @@ class MainWindow(ctk.CTk):
 
         for t_id in sorted(self.unique_faces.keys()):
             data = self.unique_faces[t_id]
-            row = ctk.CTkFrame(self.gallery_frame, height=44, fg_color="#21242c", corner_radius=6, border_width=1, border_color="#2f333e")
+            row = ctk.CTkFrame(self.gallery_frame, fg_color="#21242c", corner_radius=6, border_width=1, border_color="#2f333e")
             row.pack(fill="x", pady=3, padx=4)
             data['widget'] = row
 
