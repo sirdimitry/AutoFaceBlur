@@ -21,7 +21,7 @@ CURSOR_HAND = "pointinghand" if sys.platform == "darwin" else "hand2"
 class MainWindow(ctk.CTk):
     def __init__(self):
         super().__init__()
-        self.title("FaceBlur Studio — v1.1.0")
+        self.title("FaceBlur Studio — v1.1.8")
         
         self.geometry("1100x750")
         if sys.platform == "win32":
@@ -507,7 +507,11 @@ class MainWindow(ctk.CTk):
         clicked_id = None
 
         for face in faces:
-            x1, y1, x2, y2 = [int(v) for v in face['bbox']]
+            if isinstance(face, dict):
+                bbox = face.get('bbox', [0, 0, 0, 0])
+            else:
+                bbox = face[:4]
+            x1, y1, x2, y2 = [int(v) for v in bbox]
             pad_w = int((x2 - x1) * self.blurrer.padding_percent)
             pad_h = int((y2 - y1) * self.blurrer.padding_percent)
 
@@ -517,7 +521,7 @@ class MainWindow(ctk.CTk):
             by2 = y2 + pad_h
 
             if bx1 <= click_video_x <= bx2 and by1 <= click_video_y <= by2:
-                clicked_id = face['id']
+                clicked_id = face.get('id', 0) if isinstance(face, dict) else face[4]
                 break
 
         if clicked_id is not None:
@@ -654,6 +658,12 @@ class MainWindow(ctk.CTk):
         canvas_h = self.canvas.winfo_height()
 
         if canvas_w < 50 or canvas_h < 50:
+            self.canvas.update_idletasks()
+            canvas_w = self.canvas.winfo_width()
+            canvas_h = self.canvas.winfo_height()
+
+        if canvas_w < 50 or canvas_h < 50:
+            self.after(50, self.render_canvas_image)
             return
 
         img_w, img_h = self.current_pil_img.size
@@ -890,28 +900,41 @@ class MainWindow(ctk.CTk):
                 continue
             frame = self.raw_frames[frame_idx]
 
-            for face in faces:
-                t_id = face['id']
-                if t_id not in self.unique_faces:
-                    x1, y1, x2, y2 = [int(v) for v in face['bbox']]
-                    h, w = frame.shape[:2]
-                    x1, y1 = max(0, x1), max(0, y1)
-                    x2, y2 = min(w, x2), min(h, y2)
+            if not faces:
+                continue
 
-                    if x2 > x1 and y2 > y1:
-                        crop = frame[y1:y2, x1:x2]
-                        if crop.size > 0:
-                            crop_rgb = crop[:, :, ::-1]
-                            pil_img = Image.fromarray(crop_rgb)
-                            pil_img.thumbnail((36, 36))
-                            
-                            is_enabled = active_states.get(str(t_id), active_states.get(t_id, True))
-                            self.unique_faces[t_id] = {
-                                'pil_image': pil_img,
-                                'ctk_image': None,
-                                'enabled': is_enabled,
-                                'widget': None
-                            }
+            for face in faces:
+                if isinstance(face, dict):
+                    t_id = face.get('id', face.get('track_id', 0))
+                    bbox = face.get('bbox', face.get('box', [0, 0, 0, 0]))
+                elif isinstance(face, (list, tuple)) and len(face) >= 4:
+                    bbox = face[:4]
+                    t_id = face[4] if len(face) > 4 else 0
+                else:
+                    continue
+
+                if t_id not in self.unique_faces:
+                    try:
+                        x1, y1, x2, y2 = [int(v) for v in bbox]
+                        h, w = frame.shape[:2]
+                        x1, y1 = max(0, min(w - 1, x1)), max(0, min(h - 1, y1))
+                        x2, y2 = max(0, min(w, x2)), max(0, min(h, y2))
+
+                        if x2 > x1 and y2 > y1:
+                            crop = frame[y1:y2, x1:x2]
+                            if crop.size > 0:
+                                crop_rgb = crop[:, :, ::-1]
+                                pil_img = Image.fromarray(crop_rgb)
+                                
+                                is_enabled = active_states.get(str(t_id), active_states.get(t_id, True))
+                                self.unique_faces[t_id] = {
+                                    'pil_image': pil_img,
+                                    'ctk_image': None,
+                                    'enabled': is_enabled,
+                                    'widget': None
+                                }
+                    except Exception:
+                        pass
 
     def _on_analysis_finished_ui(self):
         self.is_analysing = False
@@ -940,23 +963,26 @@ class MainWindow(ctk.CTk):
             state="normal", 
             text_color="#d1d5db"
         )
-        self.populate_gallery_ui()
-        self.show_frame(self.current_frame_idx)
+        
+        # Гарантированный запуск в главном потоке интерфейса через after
+        self.after(50, self.populate_gallery_ui)
+        self.after(150, lambda: self.show_frame(0))
 
     def populate_gallery_ui(self):
         self.clear_gallery_ui()
         if not self.unique_faces:
             return
 
-        for t_id in sorted(self.unique_faces.keys()):
+        for t_id in sorted(self.unique_faces.keys(), key=lambda x: int(x) if str(x).isdigit() else 0):
             data = self.unique_faces[t_id]
-            row = ctk.CTkFrame(self.gallery_frame, fg_color="#21242c", corner_radius=6, border_width=1, border_color="#2f333e")
+            row = ctk.CTkFrame(self.gallery_frame, height=44, fg_color="#21242c", corner_radius=6, border_width=1, border_color="#2f333e")
             row.pack(fill="x", pady=3, padx=4)
+            row.pack_propagate(False)
             data['widget'] = row
 
             pil_img = data['pil_image']
             ctk_img = ctk.CTkImage(light_image=pil_img, dark_image=pil_img, size=(36, 36))
-            data['ctk_image'] = ctk_img
+            data['ctk_image'] = ctk_img  # Сохраняем сильную ссылку от Garbage Collector!
 
             lbl_img = ctk.CTkLabel(row, image=ctk_img, text="", width=36, height=36)
             lbl_img.image = ctk_img
@@ -964,7 +990,7 @@ class MainWindow(ctk.CTk):
 
             chk = ctk.CTkCheckBox(
                 row, 
-                text=f"Объект #{t_id:02d}", 
+                text=f"Объект #{int(t_id):02d}", 
                 font=("Helvetica", 11, "bold"),
                 text_color="#d1d5db",
                 checkmark_color="#ffffff",
@@ -1005,7 +1031,7 @@ class MainWindow(ctk.CTk):
 
         self.current_frame_idx = frame_idx
         faces_in_current_frame = self.detected_boxes_cache.get(frame_idx, [])
-        frame_active_ids = {f['id'] for f in faces_in_current_frame}
+        frame_active_ids = {f.get('id', 0) if isinstance(f, dict) else f[4] for f in faces_in_current_frame}
 
         self.update_gallery_highlighting(frame_active_ids)
         active_blur_ids = self.get_active_blur_ids()

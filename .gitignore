@@ -23,4 +23,8 @@ config.json
 *.mov
 *.avi
 *.mkv
+
+# Скомпилированные приложения macOS / Windows
+*.app/
+*.exe
 EOF
