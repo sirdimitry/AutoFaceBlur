@@ -14,9 +14,16 @@ from core.video_writer import FFmpegVideoWriter
 from core.project_manager import ProjectManager
 from ui.dialogs import show_about_dialog, get_resource_path
 
+LOG_FILE = "debug_app.log"
+
+# Автоматическая очистка лога, если размер превышает 10 МБ
+if os.path.exists(LOG_FILE) and os.path.getsize(LOG_FILE) > 10 * 1024 * 1024:
+    with open(LOG_FILE, "w", encoding="utf-8") as f:
+        f.write("[LOG CLEARED: SIZE EXCEEDED 10MB]\n")
+
 # Настройка логирования
 logging.basicConfig(
-    filename="debug_app.log",
+    filename=LOG_FILE,
     level=logging.INFO,
     format="[%(asctime)s] [%(levelname)s] [%(filename)s:%(lineno)d] %(message)s",
     encoding="utf-8"
@@ -32,19 +39,23 @@ class MainWindow(ctk.CTk):
     def __init__(self):
         super().__init__()
         
-        # Разделитель нового запуска с датой и временем
-        start_time_str = datetime.datetime.now().strftime("%H:%M %d.%m.%Y")
-        with open("debug_app.log", "a", encoding="utf-8") as log_file:
-            log_file.write(f"\n{'*'*20} {start_time_str} {'*'*20}\n")
+        # Разделитель нового запуска с датой, временем и секундами
+        start_time_str = datetime.datetime.now().strftime("%H:%M:%S %d.%m.%Y")
+        with open(LOG_FILE, "a", encoding="utf-8") as log_file:
+            log_file.write(f"\n******************** {start_time_str} ********************\n")
 
-        logging.info("Инициализация MainWindow FaceBlur Studio v1.1.18")
-        self.title("FaceBlur Studio — v1.1.18")
+        logging.info("Инициализация MainWindow FaceBlur Studio v1.1.20")
+        self.title("FaceBlur Studio — v1.1.20")
         
         self.geometry("1100x750")
         if sys.platform == "win32":
             self.state("zoomed")
         self.deiconify()
         self.focus_force()
+
+        # Безопасный шрифт для галереи
+        self.gallery_font = ctk.CTkFont(family="Helvetica", size=11, weight="bold")
+        self.gallery_photo_refs = [] # Защита миниатюр от сборщика мусора
 
         self.protocol("WM_DELETE_WINDOW", self.on_closing)
         self.configure(fg_color="#121316")
@@ -906,6 +917,7 @@ class MainWindow(ctk.CTk):
 
     def clear_gallery_ui(self):
         logging.info("Очистка UI галереи объектов...")
+        self.gallery_photo_refs.clear()
         for widget in self.gallery_frame.winfo_children():
             widget.destroy()
 
@@ -998,7 +1010,6 @@ class MainWindow(ctk.CTk):
                                 is_enabled = active_states.get(str(t_id), active_states.get(t_id, True))
                                 self.unique_faces[t_id] = {
                                     'pil_image': pil_img,
-                                    'ctk_image': None,
                                     'enabled': is_enabled,
                                     'widget': None
                                 }
@@ -1051,14 +1062,11 @@ class MainWindow(ctk.CTk):
 
         logging.info(f"Начало пакетной отрисовки галереи. Всего объектов: {len(self.unique_faces)}")
         
-        # Сортируем ID для стабильного порядка
         sorted_ids = sorted(self.unique_faces.keys(), key=lambda x: int(x))
-        
-        # Пошаговая (асинхронная) отрисовка батчами через after, чтобы macOS не блокировала поток UI
         self._render_gallery_batch(sorted_ids, 0)
 
     def _render_gallery_batch(self, ids_list, index):
-        batch_size = 5  # Рисуем по 5 элементов за раз
+        batch_size = 5
         end_idx = min(index + batch_size, len(ids_list))
         
         try:
@@ -1070,18 +1078,19 @@ class MainWindow(ctk.CTk):
                 row.pack(fill="x", pady=4, padx=4)
                 data['widget'] = row
 
-                pil_img = data['pil_image']
-                ctk_img = ctk.CTkImage(light_image=pil_img, dark_image=pil_img, size=(32, 32))
-                data['ctk_image'] = ctk_img
+                # Прямое создание standard PhotoImage с мастером `self` для предотвращения RuntimeError
+                pil_img = data['pil_image'].resize((32, 32), Image.Resampling.BILINEAR)
+                tk_img = ImageTk.PhotoImage(pil_img, master=self)
+                self.gallery_photo_refs.append(tk_img)
 
-                lbl_img = ctk.CTkLabel(row, image=ctk_img, text="", width=32, height=32)
-                lbl_img.image = ctk_img
+                lbl_img = ctk.CTkLabel(row, image=tk_img, text="", width=32, height=32, font=self.gallery_font)
+                lbl_img.image = tk_img
                 lbl_img.pack(side="left", padx=(8, 6), pady=6)
 
                 chk = ctk.CTkCheckBox(
                     row, 
                     text=f"Объект #{int(t_id):02d}", 
-                    font=("Helvetica", 11, "bold"),
+                    font=self.gallery_font,
                     text_color="#d1d5db",
                     checkmark_color="#ffffff",
                     fg_color="#e54e38",
@@ -1098,7 +1107,6 @@ class MainWindow(ctk.CTk):
                 logging.info(f"Батч-рендеринг: успешно создан элемент галереи для ID #{t_id}")
 
             if end_idx < len(ids_list):
-                # Планируем отрисовку следующей партии через 10 мс
                 self.after(10, lambda: self._render_gallery_batch(ids_list, end_idx))
             else:
                 self.gallery_frame.update_idletasks()
