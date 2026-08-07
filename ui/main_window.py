@@ -3,6 +3,7 @@ import os
 import sys
 import threading
 import logging
+import datetime
 import customtkinter as ctk
 import tkinter as tk
 from PIL import Image, ImageTk
@@ -13,7 +14,7 @@ from core.video_writer import FFmpegVideoWriter
 from core.project_manager import ProjectManager
 from ui.dialogs import show_about_dialog, get_resource_path
 
-# Настройка расширенного логирования для отладки UI и данных
+# Настройка логирования
 logging.basicConfig(
     filename="debug_app.log",
     level=logging.INFO,
@@ -30,8 +31,14 @@ CURSOR_HAND = "pointinghand" if sys.platform == "darwin" else "hand2"
 class MainWindow(ctk.CTk):
     def __init__(self):
         super().__init__()
-        logging.info("Инициализация MainWindow FaceBlur Studio v1.1.17")
-        self.title("FaceBlur Studio — v1.1.17")
+        
+        # Разделитель нового запуска с датой и временем
+        start_time_str = datetime.datetime.now().strftime("%H:%M %d.%m.%Y")
+        with open("debug_app.log", "a", encoding="utf-8") as log_file:
+            log_file.write(f"\n{'*'*20} {start_time_str} {'*'*20}\n")
+
+        logging.info("Инициализация MainWindow FaceBlur Studio v1.1.18")
+        self.title("FaceBlur Studio — v1.1.18")
         
         self.geometry("1100x750")
         if sys.platform == "win32":
@@ -413,7 +420,7 @@ class MainWindow(ctk.CTk):
             self.btn_save_proj.configure(text="✅ Сохранен")
             self.after(3000, lambda: self.btn_save_proj.configure(text="📁 Сохранить"))
         except Exception as e:
-            logging.error(f"Ошибка сохранения проекта: {e}")
+            logging.error(f"Ошибка сохранения проекта: {e}", exc_info=True)
             self.log_error(f"Ошибка сохранения: {e}")
 
     def load_project(self):
@@ -487,7 +494,7 @@ class MainWindow(ctk.CTk):
             self.show_frame(0)
 
         except Exception as e:
-            logging.error(f"Ошибка загрузки проекта: {e}")
+            logging.error(f"Ошибка загрузки проекта: {e}", exc_info=True)
             self.log_error(f"Ошибка загрузки: {e}")
 
     def bind_scroll_events(self, widget):
@@ -1042,44 +1049,62 @@ class MainWindow(ctk.CTk):
             logging.warning("populate_gallery_ui прерван: словарь unique_faces пуст!")
             return
 
-        logging.info(f"Начало отрисовки галереи. Объектов к отображению: {len(self.unique_faces)}")
+        logging.info(f"Начало пакетной отрисовки галереи. Всего объектов: {len(self.unique_faces)}")
         
-        for idx, t_id in enumerate(sorted(self.unique_faces.keys(), key=lambda x: int(x))):
-            data = self.unique_faces[t_id]
-            # Убран жесткий height=44 и pack_propagate(False), чтобы macOS не сжимала и не скрывала строку
-            row = ctk.CTkFrame(self.gallery_frame, fg_color="#21242c", corner_radius=6, border_width=1, border_color="#2f333e")
-            row.pack(fill="x", pady=4, padx=4)
-            data['widget'] = row
+        # Сортируем ID для стабильного порядка
+        sorted_ids = sorted(self.unique_faces.keys(), key=lambda x: int(x))
+        
+        # Пошаговая (асинхронная) отрисовка батчами через after, чтобы macOS не блокировала поток UI
+        self._render_gallery_batch(sorted_ids, 0)
 
-            pil_img = data['pil_image']
-            ctk_img = ctk.CTkImage(light_image=pil_img, dark_image=pil_img, size=(32, 32))
-            data['ctk_image'] = ctk_img
+    def _render_gallery_batch(self, ids_list, index):
+        batch_size = 5  # Рисуем по 5 элементов за раз
+        end_idx = min(index + batch_size, len(ids_list))
+        
+        try:
+            for i in range(index, end_idx):
+                t_id = ids_list[i]
+                data = self.unique_faces[t_id]
+                
+                row = ctk.CTkFrame(self.gallery_frame, fg_color="#21242c", corner_radius=6, border_width=1, border_color="#2f333e")
+                row.pack(fill="x", pady=4, padx=4)
+                data['widget'] = row
 
-            lbl_img = ctk.CTkLabel(row, image=ctk_img, text="", width=32, height=32)
-            lbl_img.image = ctk_img
-            lbl_img.pack(side="left", padx=(8, 6), pady=6)
+                pil_img = data['pil_image']
+                ctk_img = ctk.CTkImage(light_image=pil_img, dark_image=pil_img, size=(32, 32))
+                data['ctk_image'] = ctk_img
 
-            chk = ctk.CTkCheckBox(
-                row, 
-                text=f"Объект #{int(t_id):02d}", 
-                font=("Helvetica", 11, "bold"),
-                text_color="#d1d5db",
-                checkmark_color="#ffffff",
-                fg_color="#e54e38",
-                hover_color="#d9532f",
-                cursor=CURSOR_HAND,
-                command=lambda id_=t_id: self.toggle_face_blur(id_)
-            )
-            if data['enabled']:
-                chk.select()
+                lbl_img = ctk.CTkLabel(row, image=ctk_img, text="", width=32, height=32)
+                lbl_img.image = ctk_img
+                lbl_img.pack(side="left", padx=(8, 6), pady=6)
+
+                chk = ctk.CTkCheckBox(
+                    row, 
+                    text=f"Объект #{int(t_id):02d}", 
+                    font=("Helvetica", 11, "bold"),
+                    text_color="#d1d5db",
+                    checkmark_color="#ffffff",
+                    fg_color="#e54e38",
+                    hover_color="#d9532f",
+                    cursor=CURSOR_HAND,
+                    command=lambda id_=t_id: self.toggle_face_blur(id_)
+                )
+                if data['enabled']:
+                    chk.select()
+                else:
+                    chk.deselect()
+                chk.pack(side="left", padx=4, pady=6, fill="y", expand=True)
+
+                logging.info(f"Батч-рендеринг: успешно создан элемент галереи для ID #{t_id}")
+
+            if end_idx < len(ids_list):
+                # Планируем отрисовку следующей партии через 10 мс
+                self.after(10, lambda: self._render_gallery_batch(ids_list, end_idx))
             else:
-                chk.deselect()
-            chk.pack(side="left", padx=4, pady=6, fill="y", expand=True)
-
-            logging.info(f"Строка галереи для объекта #{t_id} (индекс {idx}) успешно создана и запакована.")
-
-        self.gallery_frame.update_idletasks()
-        logging.info("Галерея объектов полностью обновлена и пересчитана через update_idletasks().")
+                self.gallery_frame.update_idletasks()
+                logging.info("Пакетная отрисовка галереи полностью завершена.")
+        except Exception as e:
+            logging.error(f"Ошибка в процессе пакетного рендеринга галереи: {e}", exc_info=True)
 
     def toggle_face_blur(self, track_id):
         tid = int(track_id)
