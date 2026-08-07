@@ -14,26 +14,40 @@ from core.video_writer import FFmpegVideoWriter
 from core.project_manager import ProjectManager
 from ui.dialogs import show_about_dialog, get_resource_path
 
-LOG_FILE = "debug_app.log"
+# Безопасное определение директорий для логов и настроек
+if getattr(sys, "frozen", False):
+    app_dir = os.path.expanduser("~/Library/Application Support/FaceBlurStudio")
+    log_dir = os.path.expanduser("~/Library/Logs/FaceBlurStudio")
+    os.makedirs(app_dir, exist_ok=True)
+    os.makedirs(log_dir, exist_ok=True)
+    LOG_FILE = os.path.join(log_dir, "debug_app.log")
+    CONFIG_FILE = os.path.join(app_dir, "config.json")
+else:
+    LOG_FILE = "debug_app.log"
+    CONFIG_FILE = "config.json"
 
 # Автоматическая очистка лога, если размер превышает 10 МБ
 if os.path.exists(LOG_FILE) and os.path.getsize(LOG_FILE) > 10 * 1024 * 1024:
-    with open(LOG_FILE, "w", encoding="utf-8") as f:
-        f.write("[LOG CLEARED: SIZE EXCEEDED 10MB]\n")
+    try:
+        with open(LOG_FILE, "w", encoding="utf-8") as f:
+            f.write("[LOG CLEARED: SIZE EXCEEDED 10MB]\n")
+    except Exception:
+        pass
 
 # Настройка логирования
 logging.basicConfig(
     filename=LOG_FILE,
     level=logging.INFO,
     format="[%(asctime)s] [%(levelname)s] [%(filename)s:%(lineno)d] %(message)s",
-    encoding="utf-8"
+    encoding="utf-8",
+    force=True
 )
 
-CONFIG_FILE = "config.json"
 ctk.set_appearance_mode("Dark")
 ctk.set_default_color_theme("blue")
 
 CURSOR_HAND = "pointinghand" if sys.platform == "darwin" else "hand2"
+
 
 class MainWindow(ctk.CTk):
     def __init__(self):
@@ -41,8 +55,11 @@ class MainWindow(ctk.CTk):
         
         # Разделитель нового запуска с датой, временем и секундами
         start_time_str = datetime.datetime.now().strftime("%H:%M:%S %d.%m.%Y")
-        with open(LOG_FILE, "a", encoding="utf-8") as log_file:
-            log_file.write(f"\n******************** {start_time_str} ********************\n")
+        try:
+            with open(LOG_FILE, "a", encoding="utf-8") as log_file:
+                log_file.write(f"\n******************** {start_time_str} ********************\n")
+        except Exception:
+            pass
 
         logging.info("Инициализация MainWindow FaceBlur Studio v1.1.20")
         self.title("FaceBlur Studio — v1.1.20")
@@ -55,7 +72,7 @@ class MainWindow(ctk.CTk):
 
         # Безопасный шрифт для галереи
         self.gallery_font = ctk.CTkFont(family="Helvetica", size=11, weight="bold")
-        self.gallery_photo_refs = [] # Защита миниатюр от сборщика мусора
+        self.gallery_photo_refs = []  # Защита миниатюр от сборщика мусора
 
         self.protocol("WM_DELETE_WINDOW", self.on_closing)
         self.configure(fg_color="#121316")

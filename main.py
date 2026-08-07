@@ -3,8 +3,28 @@ import sys
 import time
 import threading
 import traceback
+import logging
 
-# Фиксация корня проекта в sys.path для корректных импортов core и ui
+# 1. Фиксация версии
+APP_VERSION = "1.1.20"
+
+# 2. Настройка логов ДО вызова других модулей (решает проблему Read-only file system в .app)
+if getattr(sys, 'frozen', False):
+    log_dir = os.path.expanduser('~/Library/Logs/FaceBlurStudio')
+    os.makedirs(log_dir, exist_ok=True)
+    LOG_FILE = os.path.join(log_dir, 'debug_app.log')
+else:
+    LOG_FILE = 'debug_app.log'
+
+logging.basicConfig(
+    filename=LOG_FILE,
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    encoding='utf-8',
+    force=True
+)
+
+# 3. Фиксация корня проекта в sys.path
 PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
@@ -36,7 +56,11 @@ class SmartSplashScreen(ctk.CTk):
         self.main_frame = ctk.CTkFrame(self, fg_color="#121316", border_width=1, border_color="#2b2e36")
         self.main_frame.pack(fill="both", expand=True)
 
-        icon_path = get_resource_path("AutoBlureFace_icon.png")
+        # Попытка поиска иконки (проверяем .png и .icns)
+        icon_path = get_resource_path("AutoBlureFaca_icon.png")
+        if not os.path.exists(icon_path):
+            icon_path = get_resource_path("app_icon.icns")
+
         if os.path.exists(icon_path):
             try:
                 pil_img = Image.open(icon_path)
@@ -49,7 +73,7 @@ class SmartSplashScreen(ctk.CTk):
         lbl_title = ctk.CTkLabel(self.main_frame, text="FaceBlur Studio", font=("Helvetica", 20, "bold"), text_color="#ffffff")
         lbl_title.pack(pady=(2, 2))
 
-        lbl_sub = ctk.CTkLabel(self.main_frame, text="Версия 1.1.0 — Загрузка системы...", font=("Helvetica", 11), text_color="#8a8f9d")
+        lbl_sub = ctk.CTkLabel(self.main_frame, text=f"Версия {APP_VERSION} — Загрузка системы...", font=("Helvetica", 11), text_color="#8a8f9d")
         lbl_sub.pack(pady=(0, 10))
 
         self.txt_error = ctk.CTkTextbox(
