@@ -21,7 +21,7 @@ CURSOR_HAND = "pointinghand" if sys.platform == "darwin" else "hand2"
 class MainWindow(ctk.CTk):
     def __init__(self):
         super().__init__()
-        self.title("FaceBlur Studio — v1.1.9")
+        self.title("FaceBlur Studio — v1.1.11")
         
         self.geometry("1100x750")
         if sys.platform == "win32":
@@ -966,8 +966,8 @@ class MainWindow(ctk.CTk):
             text_color="#d1d5db"
         )
         
-        self.after(50, self.populate_gallery_ui)
-        self.after(150, lambda: self.show_frame(0))
+        self.populate_gallery_ui()
+        self.show_frame(0)
 
     def populate_gallery_ui(self):
         self.clear_gallery_ui()
@@ -976,23 +976,23 @@ class MainWindow(ctk.CTk):
 
         for t_id in sorted(self.unique_faces.keys(), key=lambda x: int(x)):
             data = self.unique_faces[t_id]
-            row = ctk.CTkFrame(self.gallery_frame, height=44, fg_color="#21242c", corner_radius=6, border_width=1, border_color="#2f333e")
-            row.pack(fill="x", pady=3, padx=4)
-            row.pack_propagate(False)
+            # Стабильный фрейм строки галереи без багов компоновки macOS
+            row = ctk.CTkFrame(self.gallery_frame, fg_color="#21242c", corner_radius=6, border_width=1, border_color="#2f333e")
+            row.pack(fill="x", pady=4, padx=4)
             data['widget'] = row
 
             pil_img = data['pil_image']
-            ctk_img = ctk.CTkImage(light_image=pil_img, dark_image=pil_img, size=(36, 36))
+            ctk_img = ctk.CTkImage(light_image=pil_img, dark_image=pil_img, size=(32, 32))
             data['ctk_image'] = ctk_img
 
-            lbl_img = ctk.CTkLabel(row, image=ctk_img, text="", width=36, height=36)
+            lbl_img = ctk.CTkLabel(row, image=ctk_img, text="")
             lbl_img.image = ctk_img
-            lbl_img.pack(side="left", padx=(8, 6), pady=4)
+            lbl_img.pack(side="left", padx=(10, 8), pady=6)
 
             chk = ctk.CTkCheckBox(
                 row, 
                 text=f"Объект #{int(t_id):02d}", 
-                font=("Helvetica", 11, "bold"),
+                font=("Helvetica", 12, "bold"),
                 text_color="#d1d5db",
                 checkmark_color="#ffffff",
                 fg_color="#e54e38",
@@ -1004,7 +1004,7 @@ class MainWindow(ctk.CTk):
                 chk.select()
             else:
                 chk.deselect()
-            chk.pack(side="left", padx=4, pady=4)
+            chk.pack(side="left", padx=4, pady=6, fill="y", expand=True)
 
         self.gallery_frame.update_idletasks()
 
@@ -1023,7 +1023,7 @@ class MainWindow(ctk.CTk):
             widget = data.get('widget')
             if widget:
                 if t_id in active_frame_ids:
-                    widget.configure(border_color="#e54e38", border_width=1)
+                    widget.configure(border_color="#e54e38", border_width=1.5)
                 else:
                     widget.configure(border_color="#2f333e", border_width=1)
 
