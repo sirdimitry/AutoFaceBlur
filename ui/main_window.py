@@ -62,7 +62,7 @@ class MainWindow(ctk.CTk):
             pass
 
         logging.info("Инициализация MainWindow FaceBlur Studio v1.1.20")
-        self.title("FaceBlur Studio — v1.1.20")
+        self.title("FaceBlur Studio — v1.1.21")
         
         self.geometry("1100x750")
         if sys.platform == "win32":

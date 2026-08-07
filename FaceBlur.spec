@@ -1,16 +1,26 @@
 # -*- mode: python ; coding: utf-8 -*-
+from PyInstaller.utils.hooks import collect_all
 
 block_cipher = None
+
+# Автоматический сбор зависимостей, тем и ресурсов для CustomTkinter
+ctk_datas, ctk_binaries, ctk_hiddenimports = collect_all('customtkinter')
 
 a = Analysis(
     ['main.py'],
     pathex=[],
-    binaries=[],
+    binaries=ctk_binaries,
     datas=[
         ('yolov8s-face.pt', '.'),
         ('app_icon.icns', '.')
-    ],
-    hiddenimports=['PIL._tkinter_finder', 'imageio_ffmpeg'],
+    ] + ctk_datas,
+    hiddenimports=[
+        'PIL._tkinter_finder',
+        'imageio_ffmpeg',
+        'customtkinter',
+        'lap',
+        'lapx'
+    ] + ctk_hiddenimports,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

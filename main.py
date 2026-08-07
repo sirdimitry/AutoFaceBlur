@@ -4,17 +4,46 @@ import time
 import threading
 import traceback
 import logging
+import multiprocessing
 
-# 1. Фиксация версии
-APP_VERSION = "1.1.20"
+# 1. Отключение фона Matplotlib и YOLO до импорта библиотек
+os.environ["MPLCONFIGDIR"] = os.path.expanduser("~/Library/Caches/FaceBlurStudio_Matplotlib")
+os.environ["YOLO_VERBOSE"] = "False"
 
-# 2. Настройка логов ДО вызова других модулей (решает проблему Read-only file system в .app)
+# 2. Определение пути к лог-файлу
 if getattr(sys, 'frozen', False):
     log_dir = os.path.expanduser('~/Library/Logs/FaceBlurStudio')
     os.makedirs(log_dir, exist_ok=True)
     LOG_FILE = os.path.join(log_dir, 'debug_app.log')
 else:
     LOG_FILE = 'debug_app.log'
+
+# 3. Детальное логирование старта каждого процесса
+pid = os.getpid()
+ppid = os.getppid()
+args = sys.argv
+exe = sys.executable
+
+try:
+    with open(LOG_FILE, 'a', encoding='utf-8') as f:
+        f.write(f"\n--- [PROCESS START] PID: {pid} | PPID: {ppid} ---\n")
+        f.write(f"  sys.executable: {exe}\n")
+        f.write(f"  sys.argv: {args}\n")
+        f.write(f"  PyInstaller _MEIPASS: {getattr(sys, '_MEIPASS', 'N/A')}\n")
+except Exception:
+    pass
+
+# 4. Автоматическое добавление путей Homebrew в PATH для macOS
+if sys.platform == "darwin":
+    extra_paths = ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin"]
+    current_path = os.environ.get("PATH", "")
+    for p in extra_paths:
+        if p not in current_path and os.path.exists(p):
+            current_path = f"{p}:{current_path}"
+    os.environ["PATH"] = current_path
+
+# 5. Настройка стандартного логгера
+APP_VERSION = "1.1.21"
 
 logging.basicConfig(
     filename=LOG_FILE,
@@ -24,7 +53,9 @@ logging.basicConfig(
     force=True
 )
 
-# 3. Фиксация корня проекта в sys.path
+logging.getLogger('matplotlib').setLevel(logging.WARNING)
+
+# 6. Фиксация корня проекта в sys.path
 PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
@@ -41,7 +72,6 @@ class SmartSplashScreen(ctk.CTk):
     def __init__(self):
         super().__init__()
         
-        # Скрываем окно при старте
         self.withdraw()
         self.overrideredirect(True)
         
@@ -56,7 +86,6 @@ class SmartSplashScreen(ctk.CTk):
         self.main_frame = ctk.CTkFrame(self, fg_color="#121316", border_width=1, border_color="#2b2e36")
         self.main_frame.pack(fill="both", expand=True)
 
-        # Попытка поиска иконки (проверяем .png и .icns)
         icon_path = get_resource_path("AutoBlureFaca_icon.png")
         if not os.path.exists(icon_path):
             icon_path = get_resource_path("app_icon.icns")
@@ -112,7 +141,6 @@ class SmartSplashScreen(ctk.CTk):
         self.is_splash_visible = False
         self.start_time = time.time()
 
-        # Показываем SplashScreen только если загрузка длится дольше 400 мс
         self.after(400, self.reveal_if_slow)
         
         threading.Thread(target=self.load_application, daemon=True).start()
@@ -128,10 +156,8 @@ class SmartSplashScreen(ctk.CTk):
         self.lbl_status.configure(text=text, text_color="#8a8f9d")
 
     def show_error(self, err_msg: str):
-        # При ошибке возвращаем рамки окна, чтобы его можно было перемещать и менять размер
         self.overrideredirect(False)
         
-        # Динамически увеличиваем размер окна под Traceback
         sw = self.winfo_screenwidth()
         sh = self.winfo_screenheight()
         w, h = 680, 480
@@ -180,5 +206,16 @@ class SmartSplashScreen(ctk.CTk):
             self.show_error(err)
 
 if __name__ == "__main__":
+    multiprocessing.freeze_support()
+
+    # Фильтрация и мгновенное завершение любых фоновых/дочерних процессов без создания GUI
+    if len(sys.argv) > 1 or any(k in str(sys.argv) for k in ["--multiprocessing-fork", "parent_pid", "spawn", "fork"]):
+        try:
+            with open(LOG_FILE, 'a', encoding='utf-8') as f:
+                f.write(f"  => [BLOCKED] Процесс PID {pid} отфильтрован как воркер и завершен.\n")
+        except Exception:
+            pass
+        sys.exit(0)
+
     app_splash = SmartSplashScreen()
     app_splash.mainloop()
