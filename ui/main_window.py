@@ -21,7 +21,7 @@ CURSOR_HAND = "pointinghand" if sys.platform == "darwin" else "hand2"
 class MainWindow(ctk.CTk):
     def __init__(self):
         super().__init__()
-        self.title("FaceBlur Studio — v1.1.8")
+        self.title("FaceBlur Studio — v1.1.9")
         
         self.geometry("1100x750")
         if sys.platform == "win32":
@@ -521,10 +521,11 @@ class MainWindow(ctk.CTk):
             by2 = y2 + pad_h
 
             if bx1 <= click_video_x <= bx2 and by1 <= click_video_y <= by2:
-                clicked_id = face.get('id', 0) if isinstance(face, dict) else face[4]
+                raw_id = face.get('id', face.get('track_id', 0)) if isinstance(face, dict) else (face[4] if len(face) > 4 else 0)
+                clicked_id = int(raw_id)
                 break
 
-        if clicked_id is not None:
+        if clicked_id is not None and clicked_id in self.unique_faces:
             self.toggle_face_blur(clicked_id)
             self.populate_gallery_ui()
         else:
@@ -905,11 +906,12 @@ class MainWindow(ctk.CTk):
 
             for face in faces:
                 if isinstance(face, dict):
-                    t_id = face.get('id', face.get('track_id', 0))
+                    raw_id = face.get('id', face.get('track_id', 0))
+                    t_id = int(raw_id)
                     bbox = face.get('bbox', face.get('box', [0, 0, 0, 0]))
                 elif isinstance(face, (list, tuple)) and len(face) >= 4:
                     bbox = face[:4]
-                    t_id = face[4] if len(face) > 4 else 0
+                    t_id = int(face[4]) if len(face) > 4 else 0
                 else:
                     continue
 
@@ -964,7 +966,6 @@ class MainWindow(ctk.CTk):
             text_color="#d1d5db"
         )
         
-        # Гарантированный запуск в главном потоке интерфейса через after
         self.after(50, self.populate_gallery_ui)
         self.after(150, lambda: self.show_frame(0))
 
@@ -973,7 +974,7 @@ class MainWindow(ctk.CTk):
         if not self.unique_faces:
             return
 
-        for t_id in sorted(self.unique_faces.keys(), key=lambda x: int(x) if str(x).isdigit() else 0):
+        for t_id in sorted(self.unique_faces.keys(), key=lambda x: int(x)):
             data = self.unique_faces[t_id]
             row = ctk.CTkFrame(self.gallery_frame, height=44, fg_color="#21242c", corner_radius=6, border_width=1, border_color="#2f333e")
             row.pack(fill="x", pady=3, padx=4)
@@ -982,7 +983,7 @@ class MainWindow(ctk.CTk):
 
             pil_img = data['pil_image']
             ctk_img = ctk.CTkImage(light_image=pil_img, dark_image=pil_img, size=(36, 36))
-            data['ctk_image'] = ctk_img  # Сохраняем сильную ссылку от Garbage Collector!
+            data['ctk_image'] = ctk_img
 
             lbl_img = ctk.CTkLabel(row, image=ctk_img, text="", width=36, height=36)
             lbl_img.image = ctk_img
@@ -1008,9 +1009,10 @@ class MainWindow(ctk.CTk):
         self.gallery_frame.update_idletasks()
 
     def toggle_face_blur(self, track_id):
-        if track_id in self.unique_faces:
-            curr = self.unique_faces[track_id]['enabled']
-            self.unique_faces[track_id]['enabled'] = not curr
+        tid = int(track_id)
+        if tid in self.unique_faces:
+            curr = self.unique_faces[tid]['enabled']
+            self.unique_faces[tid]['enabled'] = not curr
             self.show_frame(self.current_frame_idx)
 
     def get_active_blur_ids(self):
@@ -1031,7 +1033,7 @@ class MainWindow(ctk.CTk):
 
         self.current_frame_idx = frame_idx
         faces_in_current_frame = self.detected_boxes_cache.get(frame_idx, [])
-        frame_active_ids = {f.get('id', 0) if isinstance(f, dict) else f[4] for f in faces_in_current_frame}
+        frame_active_ids = {int(f.get('id', f.get('track_id', 0)) if isinstance(f, dict) else (f[4] if len(f) > 4 else 0)) for f in faces_in_current_frame}
 
         self.update_gallery_highlighting(frame_active_ids)
         active_blur_ids = self.get_active_blur_ids()
