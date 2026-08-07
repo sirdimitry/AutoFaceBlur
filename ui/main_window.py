@@ -13,11 +13,11 @@ from core.video_writer import FFmpegVideoWriter
 from core.project_manager import ProjectManager
 from ui.dialogs import show_about_dialog, get_resource_path
 
-# Настройка единого системного логгера
+# Настройка расширенного логирования для отладки UI и данных
 logging.basicConfig(
     filename="debug_app.log",
     level=logging.INFO,
-    format="[%(asctime)s] [%(levelname)s] %(message)s",
+    format="[%(asctime)s] [%(levelname)s] [%(filename)s:%(lineno)d] %(message)s",
     encoding="utf-8"
 )
 
@@ -30,8 +30,8 @@ CURSOR_HAND = "pointinghand" if sys.platform == "darwin" else "hand2"
 class MainWindow(ctk.CTk):
     def __init__(self):
         super().__init__()
-        logging.info("Инициализация MainWindow FaceBlur Studio v1.1.16")
-        self.title("FaceBlur Studio — v1.1.16")
+        logging.info("Инициализация MainWindow FaceBlur Studio v1.1.17")
+        self.title("FaceBlur Studio — v1.1.17")
         
         self.geometry("1100x750")
         if sys.platform == "win32":
@@ -355,7 +355,7 @@ class MainWindow(ctk.CTk):
         self.slider.pack(side="left", expand=True, fill="x", padx=10, pady=10)
 
     def on_closing(self):
-        logging.info("Закрытие приложения пользователем.")
+        logging.info("Вызван метод on_closing. Уничтожение приложения.")
         self.is_playing = False
         self.stop_analysis_flag = True
 
@@ -381,9 +381,9 @@ class MainWindow(ctk.CTk):
         sys.exit(0)
 
     def save_project(self):
-        logging.info("Нажата кнопка сохранения проекта.")
+        logging.info("Событие: Нажата кнопка 'Сохранить проект'.")
         if not self.reader or not self.detected_boxes_cache:
-            logging.warning("Сохранение отклонено: нет активного ридера или кэша детекции.")
+            logging.warning("Сохранение отклонено: нет активного ридера или кэша.")
             return
 
         initial_dir = self.settings.get("last_directory", os.path.expanduser("~"))
@@ -409,7 +409,7 @@ class MainWindow(ctk.CTk):
                 detected_boxes_cache=self.detected_boxes_cache,
                 unique_faces=self.unique_faces
             )
-            logging.info(f"Проект успешно сохранен в файл: {file_path}")
+            logging.info(f"Проект успешно сохранен в {file_path}")
             self.btn_save_proj.configure(text="✅ Сохранен")
             self.after(3000, lambda: self.btn_save_proj.configure(text="📁 Сохранить"))
         except Exception as e:
@@ -417,7 +417,7 @@ class MainWindow(ctk.CTk):
             self.log_error(f"Ошибка сохранения: {e}")
 
     def load_project(self):
-        logging.info("Нажата кнопка открытия проекта.")
+        logging.info("Событие: Нажата кнопка 'Открыть проект'.")
         initial_dir = self.settings.get("last_directory", os.path.expanduser("~"))
 
         file_path = ctk.filedialog.askopenfilename(
@@ -430,11 +430,11 @@ class MainWindow(ctk.CTk):
 
         try:
             project_data, detected_boxes_cache, active_states = ProjectManager.load_project(file_path)
-            logging.info(f"Проект загружен из файла: {file_path}")
+            logging.info(f"Проект загружен из {file_path}. Найдено кадров в кэше: {len(detected_boxes_cache)}")
 
             video_path = project_data.get("video_path")
             if not os.path.exists(video_path):
-                logging.error(f"Видеофайл из проекта не найден по пути: {video_path}")
+                logging.error(f"Видеофайл из проекта не найден: {video_path}")
                 self.log_error("Видео из проекта не найдено по пути!")
                 return
 
@@ -447,7 +447,7 @@ class MainWindow(ctk.CTk):
 
             total = len(self.raw_frames)
             if total == 0:
-                logging.warning("Загруженный проект содержит 0 кадров видео.")
+                logging.warning("Загруженное видео содержит 0 кадров.")
                 return
 
             self.detected_boxes_cache = detected_boxes_cache
@@ -503,8 +503,9 @@ class MainWindow(ctk.CTk):
                 self.gallery_frame._parent_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
 
     def on_canvas_double_click(self, event):
-        logging.info(f"Двойной клик на холсте в позиции x={event.x}, y={event.y}")
+        logging.info(f"Событие: Двойной клик на холсте [x={event.x}, y={event.y}]. Текущий кадр: {self.current_frame_idx}")
         if not self.current_pil_img or not self.raw_frames:
+            logging.warning("Двойной клик проигнорирован: нет изображения на холсте.")
             self.reset_zoom()
             return
 
@@ -548,14 +549,15 @@ class MainWindow(ctk.CTk):
                 break
 
         if clicked_id is not None and clicked_id in self.unique_faces:
-            logging.info(f"По клику на холсте найден объект #{clicked_id}. Переключение состояния блюра.")
+            logging.info(f"Двойной клик попал на объект ID #{clicked_id}. Переключение состояния блюра.")
             self.toggle_face_blur(clicked_id)
             self.populate_gallery_ui()
         else:
-            logging.info("Клик на холсте не попал ни в один объект. Сброс зума.")
+            logging.info(f"Двойной клик не попал в рамку лица в видео-точке [x={click_video_x}, y={click_video_y}]. Сброс зума.")
             self.reset_zoom()
 
     def log_error(self, message: str):
+        logging.error(f"UI Error Log displayed: {message}")
         self.lbl_error_log.configure(text=f"⚠️ {message}")
 
     def clear_error_log(self):
@@ -593,18 +595,18 @@ class MainWindow(ctk.CTk):
 
     def on_export_labels_toggle(self):
         val = bool(self.chk_export_labels.get())
-        logging.info(f"Переключен чекбокс сохранения номеров ID в видео: {val}")
+        logging.info(f"Событие: Чекбокс 'Сохранять номера ID в видео' переключен в состояние: {val}")
         self.settings["export_labels"] = val
         self.save_settings()
 
     def stop_analysis(self):
-        logging.info("Пользователь нажал кнопку остановки анализа.")
+        logging.info("Событие: Нажата кнопка остановки анализа (⏹).")
         if self.is_analysing:
             self.stop_analysis_flag = True
             self.btn_stop.configure(state="disabled")
 
     def reset_zoom(self, event=None):
-        logging.info("Сброс масштаба и панорамирования холста.")
+        logging.info("Событие: Сброс зума холста.")
         self.zoom_factor = 1.0
         self.pan_x = 0
         self.pan_y = 0
@@ -711,7 +713,7 @@ class MainWindow(ctk.CTk):
 
     def on_blur_slider_change(self, value):
         val = int(value)
-        logging.info(f"Изменена сила размытия: {val}%")
+        logging.info(f"Слайдер: Изменена сила размытия -> {val}%")
         self.blurrer.set_blur_percent(val)
         self.lbl_blur_title.configure(text=f"Сила размытия: {val}%")
         self.settings["blur_percent"] = val
@@ -720,7 +722,7 @@ class MainWindow(ctk.CTk):
 
     def on_pad_slider_change(self, value):
         val = int(value)
-        logging.info(f"Изменен размер маски: {val}%")
+        logging.info(f"Слайдер: Изменен размер маски -> {val}%")
         self.blurrer.set_padding_percent(val)
         self.lbl_pad_title.configure(text=f"Размер маски: {val}%")
         self.settings["padding_percent"] = val
@@ -729,7 +731,7 @@ class MainWindow(ctk.CTk):
 
     def on_fade_slider_change(self, value):
         val = int(value)
-        logging.info(f"Изменена мягкость краев (Fade): {val}%")
+        logging.info(f"Слайдер: Изменена мягкость краев (Fade) -> {val}%")
         self.blurrer.set_fade_percent(val)
         self.lbl_fade_title.configure(text=f"Мягкость краев (Fade): {val}%")
         self.settings["fade_percent"] = val
@@ -738,7 +740,7 @@ class MainWindow(ctk.CTk):
 
     def on_shape_slider_change(self, value):
         val = int(value)
-        logging.info(f"Изменена форма маски: {val}%")
+        logging.info(f"Слайдер: Изменена форма маски -> {val}%")
         self.blurrer.set_shape_percent(val)
         self.lbl_shape_title.configure(text=f"Форма маски: {self.get_shape_text(val)}")
         self.settings["shape_percent"] = val
@@ -746,7 +748,7 @@ class MainWindow(ctk.CTk):
         self.show_frame(self.current_frame_idx)
 
     def open_video(self):
-        logging.info("Нажата кнопка выбора видеофайла.")
+        logging.info("Событие: Нажата кнопка '+ Выбрать видео'.")
         self.clear_error_log()
         try:
             if self.is_analysing:
@@ -759,10 +761,10 @@ class MainWindow(ctk.CTk):
                 filetypes=[("Video files", "*.mp4 *.mov *.mkv *.avi")]
             )
             if not file_path:
-                logging.info("Выбор видео отменен пользователем.")
+                logging.info("Диалог выбора видео отменен.")
                 return
 
-            logging.info(f"Выбран видеофайл: {file_path}")
+            logging.info(f"Пользователь выбрал файл: {file_path}")
             self.settings["last_directory"] = os.path.dirname(file_path)
             self.save_settings()
 
@@ -782,7 +784,7 @@ class MainWindow(ctk.CTk):
 
             self.raw_frames = list(self.reader.read_frames())
             total = len(self.raw_frames)
-            logging.info(f"Видео успешно загружено. Кадров в памяти: {total}")
+            logging.info(f"Видео ридер инициализирован успешно. Всего кадров в памяти: {total}")
 
             if total > 0:
                 self.slider.configure(state="normal", from_=0, to=total - 1, number_of_steps=total)
@@ -803,13 +805,13 @@ class MainWindow(ctk.CTk):
                 )
                 self.show_frame(0)
         except Exception as e:
-            logging.error(f"Ошибка при открытии видео: {e}")
+            logging.error(f"Критическая ошибка при открытии видео: {e}", exc_info=True)
             self.log_error(str(e))
 
     def export_video(self):
-        logging.info("Нажата кнопка экспорта видео.")
+        logging.info("Событие: Нажата кнопка 'Экспорт'.")
         if not self.raw_frames or self.is_exporting:
-            logging.warning("Экспорт отклонен: нет кадров или экспорт уже идет.")
+            logging.warning("Экспорт заблокирован: нет кадров или экспорт уже активен.")
             return
 
         initial_dir = self.settings.get("last_directory", os.path.expanduser("~"))
@@ -825,7 +827,7 @@ class MainWindow(ctk.CTk):
             logging.info("Экспорт отменен пользователем.")
             return
 
-        logging.info(f"Путь сохранения экспорта: {output_path}")
+        logging.info(f"Выбран путь для экспорта видео: {output_path}")
         self.settings["last_directory"] = os.path.dirname(output_path)
         self.save_settings()
 
@@ -841,7 +843,7 @@ class MainWindow(ctk.CTk):
 
     def _run_export(self, output_path):
         try:
-            logging.info("Запуск фонового потока экспорта видео...")
+            logging.info("Фоновый поток экспорта запущен.")
             writer = FFmpegVideoWriter(
                 output_path=output_path,
                 width=self.reader.width,
@@ -873,7 +875,7 @@ class MainWindow(ctk.CTk):
             logging.info("Экспорт видео успешно завершен.")
             self.after(0, self._on_export_finished_ui)
         except Exception as e:
-            logging.error(f"Ошибка в процессе экспорта: {e}")
+            logging.error(f"Ошибка в потоке экспорта: {e}", exc_info=True)
             self.after(0, lambda: self.log_error(str(e)))
 
     def _on_export_finished_ui(self):
@@ -896,11 +898,12 @@ class MainWindow(ctk.CTk):
             )
 
     def clear_gallery_ui(self):
+        logging.info("Очистка UI галереи объектов...")
         for widget in self.gallery_frame.winfo_children():
             widget.destroy()
 
     def start_analysis_thread(self):
-        logging.info("Нажата кнопка запуска анализа видео.")
+        logging.info("Событие: Нажата кнопка 'Анализировать' (⚡).")
         self.is_analysing = True
         self.stop_analysis_flag = False
         self.btn_analyze.configure(state="disabled", text="⏳ Детекция...", text_color="#d1d5db")
@@ -915,10 +918,10 @@ class MainWindow(ctk.CTk):
 
     def _run_full_analysis(self):
         try:
-            logging.info("Фоновый поток детекции запущен.")
+            logging.info("Фоновый поток анализа: старт детекции лиц.")
             if not self.detector:
                 model_path = get_resource_path("yolov8s-face.pt")
-                logging.info(f"Загрузка модели детектора из: {model_path}")
+                logging.info(f"Загрузка весов YOLOv8 из: {model_path}")
                 self.detector = FaceDetector(model_path=model_path)
 
             self.detected_boxes_cache.clear()
@@ -926,7 +929,7 @@ class MainWindow(ctk.CTk):
 
             for i, frame in enumerate(self.raw_frames):
                 if self.stop_analysis_flag:
-                    logging.info("Анализ прерван пользователем.")
+                    logging.info("Анализ прерван пользователем по флагу stop.")
                     break
 
                 tracked_faces = self.detector.track_faces(frame)
@@ -935,10 +938,10 @@ class MainWindow(ctk.CTk):
                 progress = int(((i + 1) / total_frames) * 100)
                 self.btn_analyze.configure(text=f"⏳ Анализ: {progress}%")
 
-            logging.info("Детекция кадров завершена успешно.")
+            logging.info(f"Детекция завершена. Всего обработано кадров: {len(self.detected_boxes_cache)}")
             self.after(0, self._on_analysis_finished_ui)
         except Exception as e:
-            logging.error(f"Ошибка во время детекции: {e}")
+            logging.error(f"Ошибка в фоновом потоке анализа: {e}", exc_info=True)
             self.after(0, lambda: self.log_error(str(e)))
 
     def build_unique_faces_from_cache(self, active_states=None):
@@ -946,17 +949,20 @@ class MainWindow(ctk.CTk):
         if active_states is None:
             active_states = {}
 
+        logging.info("Начало построения словаря unique_faces из кэша детекции...")
+        face_count_raw = 0
+
         for frame_idx, faces in self.detected_boxes_cache.items():
             if frame_idx >= len(self.raw_frames):
                 continue
             frame = self.raw_frames[frame_idx]
-
             if not faces:
                 continue
 
             h, w = frame.shape[:2]
 
             for face in faces:
+                face_count_raw += 1
                 if isinstance(face, dict):
                     raw_id = face.get('id', face.get('track_id', 0))
                     t_id = int(raw_id)
@@ -965,6 +971,7 @@ class MainWindow(ctk.CTk):
                     bbox = face[:4]
                     t_id = int(face[4]) if len(face) > 4 and face[4] is not None else 0
                 else:
+                    logging.warning(f"Неизвестный формат объекта лица в кадре {frame_idx}: {face}")
                     continue
 
                 if t_id not in self.unique_faces:
@@ -988,13 +995,16 @@ class MainWindow(ctk.CTk):
                                     'enabled': is_enabled,
                                     'widget': None
                                 }
+                                logging.info(f"Добавлено уникальное лицо ID #{t_id} (crop shape: {crop.shape})")
+                            else:
+                                logging.warning(f"Кроп для лица ID #{t_id} имеет нулевой размер.")
                     except Exception as ex:
-                        logging.warning(f"Не удалось вырезать миниатюру для лица #{t_id}: {ex}")
+                        logging.error(f"Ошибка при вырезании лица ID #{t_id}: {ex}", exc_info=True)
 
-        logging.info(f"Собрано уникальных лиц: {len(self.unique_faces)}")
+        logging.info(f"Всего сырых детектирований: {face_count_raw}. Уникальных валидных лиц собрано: {len(self.unique_faces)}")
 
     def _on_analysis_finished_ui(self):
-        logging.info("Обработка завершения анализа в UI потоке.")
+        logging.info("UI: Анализ завершен, обновление элементов интерфейса...")
         self.is_analysing = False
         self.btn_stop.configure(state="disabled")
         
@@ -1022,21 +1032,23 @@ class MainWindow(ctk.CTk):
             text_color="#d1d5db"
         )
         
+        logging.info("Вызов populate_gallery_ui() и show_frame(0)")
         self.populate_gallery_ui()
-        self.show_frame(0)
+        self.after(50, lambda: self.show_frame(0))
 
     def populate_gallery_ui(self):
         self.clear_gallery_ui()
         if not self.unique_faces:
-            logging.warning("Галерея пуста: нет уникальных лиц для отображения.")
+            logging.warning("populate_gallery_ui прерван: словарь unique_faces пуст!")
             return
 
-        logging.info("Отрисовка галереи найденных объектов...")
-        for t_id in sorted(self.unique_faces.keys(), key=lambda x: int(x)):
+        logging.info(f"Начало отрисовки галереи. Объектов к отображению: {len(self.unique_faces)}")
+        
+        for idx, t_id in enumerate(sorted(self.unique_faces.keys(), key=lambda x: int(x))):
             data = self.unique_faces[t_id]
-            row = ctk.CTkFrame(self.gallery_frame, height=44, fg_color="#21242c", corner_radius=6, border_width=1, border_color="#2f333e")
-            row.pack(fill="x", pady=3, padx=4)
-            row.pack_propagate(False)
+            # Убран жесткий height=44 и pack_propagate(False), чтобы macOS не сжимала и не скрывала строку
+            row = ctk.CTkFrame(self.gallery_frame, fg_color="#21242c", corner_radius=6, border_width=1, border_color="#2f333e")
+            row.pack(fill="x", pady=4, padx=4)
             data['widget'] = row
 
             pil_img = data['pil_image']
@@ -1062,17 +1074,19 @@ class MainWindow(ctk.CTk):
                 chk.select()
             else:
                 chk.deselect()
-            chk.pack(side="left", padx=4, pady=6)
+            chk.pack(side="left", padx=4, pady=6, fill="y", expand=True)
+
+            logging.info(f"Строка галереи для объекта #{t_id} (индекс {idx}) успешно создана и запакована.")
 
         self.gallery_frame.update_idletasks()
-        logging.info("Галерея объектов успешно отрисована.")
+        logging.info("Галерея объектов полностью обновлена и пересчитана через update_idletasks().")
 
     def toggle_face_blur(self, track_id):
         tid = int(track_id)
         if tid in self.unique_faces:
             curr = self.unique_faces[tid]['enabled']
             self.unique_faces[tid]['enabled'] = not curr
-            logging.info(f"Переключение статуса блюра для объекта #{tid}: {'ВКЛ' if not curr else 'ВЫКЛ'}")
+            logging.info(f"Переключение состояния блюра для ID #{tid}: {'ВКЛ' if not curr else 'ВЫКЛ'}")
             self.show_frame(self.current_frame_idx)
 
     def get_active_blur_ids(self):
@@ -1083,7 +1097,7 @@ class MainWindow(ctk.CTk):
             widget = data.get('widget')
             if widget:
                 if t_id in active_frame_ids:
-                    widget.configure(border_color="#e54e38", border_width=1)
+                    widget.configure(border_color="#e54e38", border_width=1.5)
                 else:
                     widget.configure(border_color="#2f333e", border_width=1)
 
@@ -1114,14 +1128,14 @@ class MainWindow(ctk.CTk):
         self.is_playing = False
         self.btn_play.configure(text="▶ Play")
         idx = int(value)
-        logging.info(f"Перемотка слайдером на кадр #{idx}")
+        logging.info(f"Событие: Перемотка слайдером на кадр #{idx}")
         self.show_frame(idx)
 
     def toggle_play(self):
         if not self.raw_frames:
             return
         self.is_playing = not self.is_playing
-        logging.info(f"Состояние плеера изменено: {'PLAY' if self.is_playing else 'PAUSE'}")
+        logging.info(f"Событие: Кнопка Play/Pause нажата. Статус: {'PLAY' if self.is_playing else 'PAUSE'}")
         if self.is_playing:
             self.btn_play.configure(text="⏸ Pause")
             self.play_loop()
