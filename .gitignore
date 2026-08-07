@@ -3,28 +3,31 @@ cat << 'EOF' > .gitignore
 venv/
 ENV/
 env/
+.venv/
 
-# Сборка PyInstaller
+# Сборка PyInstaller и скомпилированные бинарники
 build/
 dist/
 *.spec.bak
+*.dmg
+*.app/
+*.exe
 
-# Временные файлы Python
+# Временные файлы Python и ОС
 __pycache__/
 *.py[cod]
 *$py.class
 .DS_Store
+.fseventsd
 
-# Файлы настроек
+# Файлы настроек и логов
 config.json
+*.log
 
-# Видеофайлы и веса моделей (если они гигабайтные)
+# Видеофайлы
 *.mp4
 *.mov
 *.avi
 *.mkv
 
-# Скомпилированные приложения macOS / Windows
-*.app/
-*.exe
 EOF
